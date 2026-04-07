@@ -458,6 +458,11 @@ export default function SNSDashboard() {
   const [cfCarouselLoading, setCfCarouselLoading] = useState(false);
   const [cfCarouselImages, setCfCarouselImages] = useState({}); // {slideKey: "data:image/png;base64,..."}
   const [cfCarouselImgLoading, setCfCarouselImgLoading] = useState({}); // {slideKey: true}
+  // 콘텐츠 생성 이력
+  const [cfHistory, setCfHistory] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("cf_history") || "[]"); }
+    catch { return []; }
+  });
   // 발명 아이디어
   const [cfInvention, setCfInvention] = useState({ title: "", problem: "", solution: "", field: "", target: "", tone: "professional" });
   const [cfInventionResult, setCfInventionResult] = useState(null);
@@ -502,22 +507,48 @@ export default function SNSDashboard() {
   const dragSnsRef = useRef(null);
 
   // 서비스 연동 자격증명
-  const [serviceCredentials, setServiceCredentials] = useState({
-    supabase:    { projectUrl: "", publishableKey: "", anonKeyLegacy: "" },
-    github:      { personalAccessToken: "", owner: "", repo: "" },
-    vercel:      { accessToken: "", projectId: "", orgId: "" },
-    googleSheet: { spreadsheetId: "", serviceAccountEmail: "", privateKey: "" },
-    openai:      { apiKey: "" },
+  const [serviceCredentials, setServiceCredentials] = useState(() => {
+    try {
+      const local = JSON.parse(localStorage.getItem("service_credentials") || "{}");
+      return {
+        supabase:    { projectUrl: "", publishableKey: "", anonKeyLegacy: "", ...local.supabase },
+        github:      { personalAccessToken: "", owner: "", repo: "", ...local.github },
+        vercel:      { accessToken: "", projectId: "", orgId: "", ...local.vercel },
+        googleSheet: { spreadsheetId: "", serviceAccountEmail: "", privateKey: "", ...local.googleSheet },
+        openai:      { apiKey: "", ...local.openai },
+      };
+    } catch {
+      return {
+        supabase:    { projectUrl: "", publishableKey: "", anonKeyLegacy: "" },
+        github:      { personalAccessToken: "", owner: "", repo: "" },
+        vercel:      { accessToken: "", projectId: "", orgId: "" },
+        googleSheet: { spreadsheetId: "", serviceAccountEmail: "", privateKey: "" },
+        openai:      { apiKey: "" },
+      };
+    }
   });
   const [serviceSaveStatus, setServiceSaveStatus] = useState({});
 
   // SNS 연동 관리 상태
-  const [snsCredentials, setSnsCredentials] = useState({
-    facebook:  { pageAccessToken: "", pageId: "" },
-    twitter:   { bearerToken: "", consumerKey: "", consumerKeySecret: "", accessToken: "", accessTokenSecret: "", clientId: "", clientSecret: "" },
-    threads:   { appId: "", accessToken: "" },
-    instagram: { accessToken: "", userId: "" },
-    youtube:   { clientId: "", clientSecret: "" },
+  const [snsCredentials, setSnsCredentials] = useState(() => {
+    try {
+      const local = JSON.parse(localStorage.getItem("sns_credentials") || "{}");
+      return {
+        facebook:  { pageAccessToken: "", pageId: "", ...local.facebook },
+        twitter:   { bearerToken: "", consumerKey: "", consumerKeySecret: "", accessToken: "", accessTokenSecret: "", clientId: "", clientSecret: "", ...local.twitter },
+        threads:   { appId: "", accessToken: "", ...local.threads },
+        instagram: { accessToken: "", userId: "", ...local.instagram },
+        youtube:   { clientId: "", clientSecret: "", ...local.youtube },
+      };
+    } catch {
+      return {
+        facebook:  { pageAccessToken: "", pageId: "" },
+        twitter:   { bearerToken: "", consumerKey: "", consumerKeySecret: "", accessToken: "", accessTokenSecret: "", clientId: "", clientSecret: "" },
+        threads:   { appId: "", accessToken: "" },
+        instagram: { accessToken: "", userId: "" },
+        youtube:   { clientId: "", clientSecret: "" },
+      };
+    }
   });
   const [snsSaveStatus, setSnsSaveStatus] = useState({}); // { facebook: "saved" | "saving" | null }
   const [showTokens, setShowTokens] = useState({});       // { "facebook-pageAccessToken": true }
@@ -2820,7 +2851,17 @@ ${platformList}
     return data.choices[0].message.content.trim();
   };
 
-  // DALL-E 3 이미지 생성 (인스타 카드용)
+  // 콘텐츠 생성 이력 저장
+  const saveCfHistory = (type, title, data) => {
+    const LABELS = { sns: "SNS 초안", carousel: "캐러셀/블로그", invention: "발명 아이디어", plan: "월별 플래닝" };
+    const item = { id: Date.now(), type, label: LABELS[type] || type, title, data, createdAt: new Date().toISOString() };
+    setCfHistory(prev => {
+      const updated = [item, ...prev].slice(0, 50);
+      localStorage.setItem("cf_history", JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   // Pollinations.ai 무료 이미지 생성 (API 키 불필요, 완전 무료)
   const cfGenerateImage = async (slideKey, prompt) => {
     setCfCarouselImgLoading(prev => ({ ...prev, [slideKey]: true }));
@@ -2888,7 +2929,9 @@ ${platformList}
       if (!resp.ok) throw new Error(data.error?.message || `API 오류 ${resp.status}`);
       const raw = data.choices[0].message.content.trim();
       const jsonStr = raw.replace(/^```json\n?/, "").replace(/\n?```$/, "").trim();
-      setCfResults(JSON.parse(jsonStr));
+      const parsed = JSON.parse(jsonStr);
+      setCfResults(parsed);
+      saveCfHistory("sns", cfKeyword, parsed);
     } catch (e) {
       alert(`생성 실패: ${e.message}`);
     } finally {
@@ -2938,21 +2981,27 @@ ${platformList}
             `키워드: ${cfCarouselKeyword}`
           ),
         ]);
-        setCfCarouselResult({ type: "both", instagram: parseJ(igRaw), blog: parseJ(blogRaw) });
+        const result = { type: "both", instagram: parseJ(igRaw), blog: parseJ(blogRaw) };
+        setCfCarouselResult(result);
+        saveCfHistory("carousel", cfCarouselKeyword, result);
       } else if (cfCarouselPlatform === "instagram") {
         const raw = await cfCallOpenAI(
           `당신은 인스타그램 콘텐츠 전문가입니다. 키워드 기반으로 캐러셀 슬라이드를 생성하세요.
 반드시 JSON만 응답: {"cover":{"title":"커버 제목(강렬한 훅)","subtitle":"부제목"},"slides":[{"no":1,"title":"슬라이드 제목","body":"본문(2~3줄)","imageDesc":"AI 이미지 묘사(영문)"},{"no":2,"title":"","body":"","imageDesc":""},{"no":3,"title":"","body":"","imageDesc":""},{"no":4,"title":"","body":"","imageDesc":""},{"no":5,"title":"","body":"","imageDesc":""}],"caption":"인스타그램 캡션(이모지 포함, 200자 이내)","hashtags":["해시태그1","해시태그2","해시태그3","해시태그4","해시태그5","해시태그6","해시태그7","해시태그8","해시태그9","해시태그10"]}`,
           `키워드: ${cfCarouselKeyword}`
         );
-        setCfCarouselResult({ type: "instagram", data: parseJ(raw) });
+        const result = { type: "instagram", data: parseJ(raw) };
+        setCfCarouselResult(result);
+        saveCfHistory("carousel", cfCarouselKeyword, result);
       } else {
         const raw = await cfCallOpenAI(
           `당신은 네이버 인기 블로거입니다. 아래 키워드로 블로그 글을 작성하세요.
 반드시 JSON만 응답: {"titles":["제목1(클릭 유도)","제목2","제목3"],"thumbnailTexts":["썸네일텍스트1","썸네일텍스트2"],"hook":"강력한 오프닝 훅(2문장)","body":"본문HTML(H2/H3/ul/table 태그 포함, 최소 800자)","imageRecommends":["이미지추천1","이미지추천2","이미지추천3"],"internalLinks":["내부링크주제1","내부링크주제2"],"hashtags":["해시태그1","해시태그2","해시태그3","해시태그4","해시태그5","해시태그6","해시태그7","해시태그8","해시태그9","해시태그10"],"cta":"마무리 CTA 문장"}`,
           `키워드: ${cfCarouselKeyword}`
         );
-        setCfCarouselResult({ type: "blog", data: parseJ(raw) });
+        const result = { type: "blog", data: parseJ(raw) };
+        setCfCarouselResult(result);
+        saveCfHistory("carousel", cfCarouselKeyword, result);
       }
     } catch (e) { alert(`생성 실패: ${e.message}`); } finally { setCfCarouselLoading(false); }
   };
@@ -2974,7 +3023,9 @@ ${platformList}
 반드시 JSON만 응답: {"seoTitle":"SEO 제목","metaDesc":"메타 설명(150자 이내)","body":"본문HTML(H2/H3/ul 포함, 최소 600자)","hashtags":["태그1","태그2","태그3","태그4","태그5"]}`, context),
       ]);
       const parseJSON = (raw) => JSON.parse(raw.replace(/^```json\n?/, "").replace(/\n?```$/, "").trim());
-      setCfInventionResult({ card: parseJSON(cardRaw), shorts: parseJSON(shortsRaw), blog: parseJSON(blogRaw) });
+      const invResult = { card: parseJSON(cardRaw), shorts: parseJSON(shortsRaw), blog: parseJSON(blogRaw) };
+      setCfInventionResult(invResult);
+      saveCfHistory("invention", cfInvention.title, invResult);
     } catch (e) { alert(`생성 실패: ${e.message}`); } finally { setCfInventionLoading(false); }
   };
 
@@ -2989,7 +3040,9 @@ ${platformList}
         `브랜드/주제: ${cfPlanKeyword}`
       );
       const json = raw.replace(/^```json\n?/, "").replace(/\n?```$/, "").trim();
-      setCfPlanResult(JSON.parse(json));
+      const planResult = JSON.parse(json);
+      setCfPlanResult(planResult);
+      saveCfHistory("plan", cfPlanKeyword, planResult);
     } catch (e) { alert(`생성 실패: ${e.message}`); } finally { setCfPlanLoading(false); }
   };
 
@@ -3038,6 +3091,7 @@ ${platformList}
       { id: "invention", label: "발명 아이디어", icon: "💡" },
       { id: "plan",      label: "월별 플래닝",   icon: "📅" },
       { id: "chat",      label: "AI 채팅 편집",  icon: "💬" },
+      { id: "history",   label: "생성 목록",     icon: "📋" },
     ];
     const inputStyle = { width: "100%", padding: "10px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 14, boxSizing: "border-box", fontFamily: "inherit", outline: "none" };
     const labelStyle = { fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 };
@@ -3575,6 +3629,70 @@ ${platformList}
                   <button onClick={handleCfChat} disabled={cfChatLoading} style={{ padding: "10px 20px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>전송</button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ── 탭7: 생성 목록 ── */}
+          {cfTab === "history" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>📋 콘텐츠 생성 이력</div>
+                {cfHistory.length > 0 && (
+                  <button onClick={() => { setCfHistory([]); localStorage.removeItem("cf_history"); }}
+                    style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, border: "1px solid #fca5a5", background: "#fff", color: "#dc2626", cursor: "pointer" }}>
+                    전체 삭제
+                  </button>
+                )}
+              </div>
+              {cfHistory.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "60px 0", color: "#94a3b8" }}>
+                  <div style={{ fontSize: 36, marginBottom: 12 }}>📭</div>
+                  <div style={{ fontSize: 14 }}>아직 생성된 콘텐츠가 없습니다</div>
+                  <div style={{ fontSize: 12, marginTop: 4 }}>각 탭에서 콘텐츠를 생성하면 여기에 저장됩니다</div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {cfHistory.map((item) => {
+                    const TYPE_COLORS = { sns: "#6366f1", carousel: "#ec4899", invention: "#f59e0b", plan: "#10b981" };
+                    const color = TYPE_COLORS[item.type] || "#6366f1";
+                    const date = new Date(item.createdAt);
+                    const dateStr = `${date.getMonth()+1}/${date.getDate()} ${String(date.getHours()).padStart(2,"0")}:${String(date.getMinutes()).padStart(2,"0")}`;
+                    return (
+                      <div key={item.id} style={{ ...cardStyle, display: "flex", alignItems: "center", gap: 14, padding: "14px 16px" }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                            <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: `${color}18`, color, fontWeight: 700 }}>{item.label}</span>
+                            <span style={{ fontSize: 12, color: "#94a3b8" }}>{dateStr}</span>
+                          </div>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1a2e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {item.title}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                          <button onClick={() => {
+                            if (item.type === "sns") { setCfResults(item.data); setCfTab("sns"); }
+                            else if (item.type === "carousel") { setCfCarouselResult(item.data); setCfTab("carousel"); }
+                            else if (item.type === "invention") { setCfInventionResult(item.data); setCfTab("invention"); }
+                            else if (item.type === "plan") { setCfPlanResult(item.data); setCfTab("plan"); }
+                          }} style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, border: `1px solid ${color}`, background: "#fff", color, fontWeight: 600, cursor: "pointer" }}>
+                            불러오기
+                          </button>
+                          <button onClick={() => {
+                            setCfHistory(prev => {
+                              const updated = prev.filter(h => h.id !== item.id);
+                              localStorage.setItem("cf_history", JSON.stringify(updated));
+                              return updated;
+                            });
+                          }} style={{ fontSize: 12, padding: "6px 10px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#94a3b8", cursor: "pointer" }}>
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
