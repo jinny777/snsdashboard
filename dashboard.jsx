@@ -516,6 +516,7 @@ export default function SNSDashboard() {
         vercel:      { accessToken: "", projectId: "", orgId: "", ...local.vercel },
         googleSheet: { spreadsheetId: "", serviceAccountEmail: "", privateKey: "", ...local.googleSheet },
         openai:      { apiKey: "", ...local.openai },
+        imgbb:       { apiKey: "", ...local.imgbb },
       };
     } catch {
       return {
@@ -2862,6 +2863,61 @@ ${platformList}
     });
   };
 
+  // 인스타그램 게시 (imgbb → Instagram Graph API)
+  const [igPostStatus, setIgPostStatus] = useState({}); // { slideKey: "posting"|"done"|"error" }
+
+  const uploadToImgbb = async (dataUrl) => {
+    const imgbbKey = serviceCredentials.imgbb?.apiKey?.trim();
+    if (!imgbbKey) throw new Error("imgbb API 키가 없습니다.\n연동 관리 > 서비스 연동 > imgbb에서 키를 저장해주세요.\n(imgbb.com 무료 가입 후 발급)");
+    const base64 = dataUrl.split(",")[1];
+    const form = new FormData();
+    form.append("key", imgbbKey);
+    form.append("image", base64);
+    const resp = await fetch("https://api.imgbb.com/1/upload", { method: "POST", body: form });
+    const data = await resp.json();
+    if (!data.success) throw new Error("imgbb 업로드 실패: " + (data.error?.message || ""));
+    return data.data.url;
+  };
+
+  const postSlideToInstagram = async (slideKey, dataUrl, caption) => {
+    const { accessToken, userId } = snsCredentials.instagram || {};
+    if (!accessToken || !userId) {
+      alert("인스타그램 연동 정보를 먼저 저장해주세요.\n연동 관리 > SNS 연동 > Instagram");
+      return;
+    }
+    setIgPostStatus(prev => ({ ...prev, [slideKey]: "posting" }));
+    try {
+      // 1. imgbb에 이미지 업로드
+      const imageUrl = await uploadToImgbb(dataUrl);
+      // 2. Instagram 미디어 컨테이너 생성
+      const containerResp = await fetch(
+        `https://graph.facebook.com/v19.0/${userId}/media`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_url: imageUrl, caption, access_token: accessToken }),
+        }
+      );
+      const container = await containerResp.json();
+      if (container.error) throw new Error(container.error.message);
+      // 3. 게시
+      const publishResp = await fetch(
+        `https://graph.facebook.com/v19.0/${userId}/media_publish`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ creation_id: container.id, access_token: accessToken }),
+        }
+      );
+      const result = await publishResp.json();
+      if (result.error) throw new Error(result.error.message);
+      setIgPostStatus(prev => ({ ...prev, [slideKey]: "done" }));
+    } catch (e) {
+      setIgPostStatus(prev => ({ ...prev, [slideKey]: "error" }));
+      alert(`인스타그램 게시 실패:\n${e.message}`);
+    }
+  };
+
   // Pollinations.ai 무료 이미지 생성 (API 키 불필요, 완전 무료)
   const cfGenerateImage = async (slideKey, prompt) => {
     setCfCarouselImgLoading(prev => ({ ...prev, [slideKey]: true }));
@@ -3373,7 +3429,7 @@ ${platformList}
                               </div>
                               <div style={{ position: "absolute", bottom: 8, right: 10, fontSize: 10, color: "rgba(255,255,255,0.55)", zIndex: 2 }}>{imgUrl ? "📷 실사" : "클릭=다운로드"}</div>
                             </div>
-                            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                            <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
                               <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>{item.isCover ? "커버" : `슬라이드 ${item.data?.no}`}</div>
                               <button
                                 onClick={() => cfGenerateImage(item.slideKey, item.prompt)}
@@ -3381,6 +3437,18 @@ ${platformList}
                                 style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, border: "1px solid #6366f1", background: imgUrl ? "#eef2ff" : "#fff", color: "#6366f1", cursor: "pointer", fontWeight: 600 }}>
                                 {imgLoading ? "..." : imgUrl ? "🔄" : "🎨"}
                               </button>
+                              {imgUrl && (() => {
+                                const st = igPostStatus[item.slideKey];
+                                const caption = (igData?.caption || "") + "\n" + (igData?.hashtags || []).join(" ");
+                                return (
+                                  <button
+                                    onClick={() => postSlideToInstagram(item.slideKey, imgUrl, caption)}
+                                    disabled={st === "posting"}
+                                    style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, border: `1px solid ${st === "done" ? "#10b981" : st === "error" ? "#ef4444" : "#e1306c"}`, background: st === "done" ? "#ecfdf5" : st === "error" ? "#fef2f2" : "#fff", color: st === "done" ? "#10b981" : st === "error" ? "#ef4444" : "#e1306c", cursor: "pointer", fontWeight: 600 }}>
+                                    {st === "posting" ? "⏳" : st === "done" ? "✅" : st === "error" ? "❌" : "📤"}
+                                  </button>
+                                );
+                              })()}
                             </div>
                           </div>
                         );
@@ -3753,6 +3821,14 @@ ${platformList}
         desc: "OpenAI의 GPT 모델을 활용해 마스터 글을 각 SNS 플랫폼에 맞는 초안으로 자동 변환합니다. API 키를 저장하면 [초안 생성하기] 버튼이 실제 AI로 동작합니다.",
         fields: [
           { key: "apiKey", label: "API Key", placeholder: "sk-proj-xxxxxxxxxxxxxxxxxxxx", secret: true },
+        ],
+      },
+      imgbb: {
+        label: "imgbb", icon: "🖼️", color: "#2d9cdb", url: "https://imgbb.com",
+        note: "imgbb.com → 무료 가입 → API → Get API key",
+        desc: "무료 이미지 호스팅 서비스. 인스타그램 API는 공개 URL의 이미지만 게시 가능하므로, 생성된 카드 이미지를 imgbb에 업로드 후 인스타그램에 자동 게시합니다.",
+        fields: [
+          { key: "apiKey", label: "API Key", placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", secret: true },
         ],
       },
     };
