@@ -3,11 +3,13 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// 환경변수가 없거나 기본값이면 데모 모드
-export const DEMO_MODE =
-  !supabaseUrl ||
-  !supabaseAnonKey ||
-  supabaseUrl === "https://your-project-ref.supabase.co";
+const isValidUrl = (url) =>
+  typeof url === "string" &&
+  (url.startsWith("https://") || url.startsWith("http://")) &&
+  url !== "https://your-project-ref.supabase.co";
+
+// 환경변수가 없거나 유효하지 않으면 데모 모드
+export const DEMO_MODE = !isValidUrl(supabaseUrl) || !supabaseAnonKey;
 
 // 데모 모드일 때 더미 클라이언트 (에러 방지용)
 const resolved = (data = null, error = null) => {
@@ -37,6 +39,14 @@ const dummyClient = {
   },
 };
 
-export const supabase = DEMO_MODE
-  ? dummyClient
-  : createClient(supabaseUrl, supabaseAnonKey);
+function createSupabaseClient() {
+  if (DEMO_MODE) return dummyClient;
+  try {
+    return createClient(supabaseUrl, supabaseAnonKey);
+  } catch (e) {
+    console.warn("Supabase 초기화 실패, 데모 모드로 전환:", e.message);
+    return dummyClient;
+  }
+}
+
+export const supabase = createSupabaseClient();
