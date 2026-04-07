@@ -517,6 +517,7 @@ export default function SNSDashboard() {
         googleSheet: { spreadsheetId: "", serviceAccountEmail: "", privateKey: "", ...local.googleSheet },
         openai:      { apiKey: "", ...local.openai },
         imgbb:       { apiKey: "", ...local.imgbb },
+        meta:        { appId: "", ...local.meta },
       };
     } catch {
       return {
@@ -2865,6 +2866,50 @@ ${platformList}
 
   // 인스타그램 게시 (imgbb → Instagram Graph API)
   const [igPostStatus, setIgPostStatus] = useState({}); // { slideKey: "posting"|"done"|"error" }
+  const [igOAuthLoading, setIgOAuthLoading] = useState(false);
+
+  // Instagram OAuth 팝업 로그인
+  const startInstagramOAuth = () => {
+    const appId = serviceCredentials.meta?.appId?.trim();
+    if (!appId) { alert("Meta App ID를 먼저 입력하고 저장해주세요.\n연동 관리 > 서비스 연동 > Meta"); return; }
+    const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
+    const scope = "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement";
+    const url = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=token`;
+    const popup = window.open(url, "ig_oauth", "width=600,height=700,left=200,top=100");
+    setIgOAuthLoading(true);
+    const timer = setInterval(async () => {
+      try {
+        if (!popup || popup.closed) { clearInterval(timer); setIgOAuthLoading(false); return; }
+        const hash = popup.location.hash;
+        if (hash && hash.includes("access_token=")) {
+          clearInterval(timer);
+          popup.close();
+          const params = new URLSearchParams(hash.slice(1));
+          const token = params.get("access_token");
+          if (!token) { setIgOAuthLoading(false); return; }
+          try {
+            // 페이지 목록 조회
+            const pagesResp = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${token}`);
+            const pagesData = await pagesResp.json();
+            const pageId = pagesData.data?.[0]?.id;
+            if (!pageId) throw new Error("연결된 Facebook 페이지가 없습니다.");
+            // Instagram User ID 조회
+            const igResp = await fetch(`https://graph.facebook.com/v19.0/${pageId}?fields=instagram_business_account&access_token=${token}`);
+            const igData = await igResp.json();
+            const userId = igData.instagram_business_account?.id;
+            if (!userId) throw new Error("Instagram 비즈니스 계정을 찾을 수 없습니다.\n인스타그램이 Facebook 페이지와 연결되어 있는지 확인해주세요.");
+            // 저장
+            setSnsCredentials(prev => ({ ...prev, instagram: { ...prev.instagram, accessToken: token, userId } }));
+            const saved = JSON.parse(localStorage.getItem("sns_credentials") || "{}");
+            saved.instagram = { ...saved.instagram, accessToken: token, userId };
+            localStorage.setItem("sns_credentials", JSON.stringify(saved));
+            alert(`✅ Instagram 연동 완료!\nUser ID: ${userId}`);
+          } catch (e) { alert(`연동 실패: ${e.message}`); }
+          setIgOAuthLoading(false);
+        }
+      } catch (_) { /* 팝업 크로스오리진 탐색 중 - 무시 */ }
+    }, 700);
+  };
 
   const uploadToImgbb = async (dataUrl) => {
     const imgbbKey = serviceCredentials.imgbb?.apiKey?.trim();
@@ -3831,6 +3876,14 @@ ${platformList}
           { key: "apiKey", label: "API Key", placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", secret: true },
         ],
       },
+      meta: {
+        label: "Meta (Facebook)", icon: "📘", color: "#1877f2", url: "https://developers.facebook.com/apps",
+        note: "developers.facebook.com → 앱 선택 → 앱 설정 → 기본 설정 → 앱 ID",
+        desc: "Instagram OAuth 자동 로그인에 필요한 Meta App ID입니다. 입력 후 SNS 연동 > Instagram에서 '로그인으로 연동' 버튼을 클릭하면 자동으로 Access Token과 User ID가 저장됩니다.",
+        fields: [
+          { key: "appId", label: "App ID", placeholder: "1234567890123456", secret: false },
+        ],
+      },
     };
 
     const handleServiceCredentialChange = (service, fieldKey, value) => {
@@ -3898,10 +3951,16 @@ ${platformList}
       },
       { id: "instagram",
         label: "Instagram", icon: "📸", color: "#E1306C", url: "https://developers.facebook.com/docs/instagram-api",
-        note: "Meta 개발자 콘솔 → Instagram Basic Display API → 액세스 토큰 생성",
+        note: "아래 '로그인으로 연동' 버튼 클릭 → Facebook 로그인 → 자동 저장 (Meta App ID 필요)",
+        extraButton: (
+          <button onClick={startInstagramOAuth} disabled={igOAuthLoading}
+            style={{ width: "100%", padding: "11px", borderRadius: 8, border: "none", background: igOAuthLoading ? "#ccc" : "#1877f2", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 8 }}>
+            {igOAuthLoading ? "⏳ 로그인 중..." : "🔐 Facebook으로 Instagram 자동 연동"}
+          </button>
+        ),
         fields: [
-          { key: "accessToken", label: "Access Token",      placeholder: "EAAxxxxxx...",       secret: true },
-          { key: "userId",      label: "Instagram User ID", placeholder: "17841400000000000", secret: false },
+          { key: "accessToken", label: "Access Token (자동입력)",      placeholder: "EAAxxxxxx...",       secret: true },
+          { key: "userId",      label: "Instagram User ID (자동입력)", placeholder: "17841400000000000", secret: false },
         ],
       },
       { id: "threads",
@@ -4025,6 +4084,9 @@ ${platformList}
             {platform.desc}
           </div>
         )}
+
+        {/* 추가 버튼 (OAuth 등) */}
+        {platform.extraButton && <div style={{ marginBottom: 8 }}>{platform.extraButton}</div>}
 
         {/* 입력 필드들 */}
         <div style={{ marginBottom: 16 }}>
