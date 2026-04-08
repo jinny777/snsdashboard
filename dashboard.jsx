@@ -518,6 +518,7 @@ export default function SNSDashboard() {
         openai:      { apiKey: "", ...local.openai },
         imgbb:       { apiKey: "", ...local.imgbb },
         meta:        { appId: "", ...local.meta },
+        pexels:      { apiKey: "", ...local.pexels },
       };
     } catch {
       return {
@@ -2963,20 +2964,42 @@ ${platformList}
     }
   };
 
-  // Pollinations.ai 무료 이미지 생성 (API 키 불필요, 완전 무료)
+  // 이미지 생성: Pexels 실사(우선) → Pollinations AI(폴백)
   const cfGenerateImage = async (slideKey, prompt) => {
     setCfCarouselImgLoading(prev => ({ ...prev, [slideKey]: true }));
+    const toDataUrl = (blob) => new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(blob);
+    });
     try {
-      const fullPrompt = `Instagram card news background, photorealistic, high quality, vibrant, cinematic lighting, no text, no watermark: ${prompt}`;
-      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`이미지 생성 오류 ${resp.status}`);
-      const blob = await resp.blob();
-      const dataUrl = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.readAsDataURL(blob);
-      });
+      const pexelsKey = serviceCredentials.pexels?.apiKey?.trim();
+      let dataUrl = null;
+
+      if (pexelsKey) {
+        // Pexels 실사 이미지 검색
+        const query = prompt.split(/[,.]/ )[0].trim();
+        const resp = await fetch(
+          `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=5&orientation=square&size=large`,
+          { headers: { Authorization: pexelsKey } }
+        );
+        const data = await resp.json();
+        if (data.photos?.length) {
+          const photo = data.photos[Math.floor(Math.random() * data.photos.length)];
+          const imgResp = await fetch(photo.src.large2x || photo.src.large);
+          if (imgResp.ok) dataUrl = await toDataUrl(await imgResp.blob());
+        }
+      }
+
+      if (!dataUrl) {
+        // Pollinations.ai 폴백 (AI 생성, 무료)
+        const fullPrompt = `Instagram card news background, photorealistic, high quality, vibrant, cinematic lighting, no text, no watermark: ${prompt}`;
+        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`이미지 생성 오류 ${resp.status}`);
+        dataUrl = await toDataUrl(await resp.blob());
+      }
+
       setCfCarouselImages(prev => ({ ...prev, [slideKey]: dataUrl }));
     } catch (e) {
       alert(`이미지 생성 실패: ${e.message}`);
@@ -3886,6 +3909,14 @@ ${platformList}
         desc: "무료 이미지 호스팅 서비스. 인스타그램 API는 공개 URL의 이미지만 게시 가능하므로, 생성된 카드 이미지를 imgbb에 업로드 후 인스타그램에 자동 게시합니다.",
         fields: [
           { key: "apiKey", label: "API Key", placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", secret: true },
+        ],
+      },
+      pexels: {
+        label: "Pexels", icon: "📷", color: "#05a081", url: "https://www.pexels.com/api",
+        note: "pexels.com/api → 무료 가입 → Your API Key 복사",
+        desc: "실제 사진 기반 무료 이미지 API. 인스타그램 카드뉴스 배경에 콘텐츠 주제에 맞는 고품질 실사 사진을 자동 검색해서 적용합니다. 미입력 시 AI 생성 이미지(Pollinations)로 대체됩니다.",
+        fields: [
+          { key: "apiKey", label: "API Key", placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", secret: true },
         ],
       },
       meta: {
