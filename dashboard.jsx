@@ -477,11 +477,16 @@ export default function SNSDashboard() {
   const [cfPlanResult, setCfPlanResult] = useState(() => { try { return JSON.parse(localStorage.getItem("cf_plan_result") || "null"); } catch { return null; } });
   const [cfPlanLoading, setCfPlanLoading] = useState(false);
   const [cfPlanSavedList, setCfPlanSavedList] = useState(() => { try { return JSON.parse(localStorage.getItem("cf_plan_saved_list") || "[]"); } catch { return []; } });
-  // AI 채팅 편집
+  // AI 채팅 편집 (탭6)
   const [cfChatMessages, setCfChatMessages] = useState([]);
   const [cfChatInput, setCfChatInput] = useState("");
   const [cfChatLoading, setCfChatLoading] = useState(false);
   const [cfChatContext, setCfChatContext] = useState("");
+  // 인라인 AI 편집 (각 카드 내)
+  const [cfInlineEditOpen, setCfInlineEditOpen] = useState(null); // key: "sns_instagram" | "sns_twitter" 등
+  const [cfInlineMessages, setCfInlineMessages] = useState({});  // { key: [{role, content}] }
+  const [cfInlineInput, setCfInlineInput] = useState("");
+  const [cfInlineLoading, setCfInlineLoading] = useState(false);
 
   const menuItems = [
     { id: "home", label: "홈", icon: Icons.Home },
@@ -517,6 +522,7 @@ export default function SNSDashboard() {
         vercel:      { accessToken: "", projectId: "", orgId: "", ...local.vercel },
         googleSheet: { spreadsheetId: "", serviceAccountEmail: "", privateKey: "", ...local.googleSheet },
         openai:      { apiKey: "", ...local.openai },
+        gemini:      { apiKey: "", ...local.gemini },
         imgbb:       { apiKey: "", ...local.imgbb },
         meta:        { appId: "", ...local.meta },
         pexels:      { apiKey: "", ...local.pexels },
@@ -528,6 +534,7 @@ export default function SNSDashboard() {
         vercel:      { accessToken: "", projectId: "", orgId: "" },
         googleSheet: { spreadsheetId: "", serviceAccountEmail: "", privateKey: "" },
         openai:      { apiKey: "" },
+        gemini:      { apiKey: "" },
       };
     }
   });
@@ -2965,8 +2972,8 @@ ${platformList}
     }
   };
 
-  // 이미지 생성: Pexels 실사(우선) → Pollinations AI(폴백)
-  const cfGenerateImage = async (slideKey, prompt) => {
+  // 이미지 생성: Gemini 2.0 Flash → Pollinations AI(폴백)
+  const cfGenerateImage = async (slideKey, prompt, isCover = false) => {
     setCfCarouselImgLoading(prev => ({ ...prev, [slideKey]: true }));
     const toDataUrl = (blob) => new Promise((resolve) => {
       const reader = new FileReader();
@@ -2974,26 +2981,36 @@ ${platformList}
       reader.readAsDataURL(blob);
     });
     try {
-      const pexelsKey = serviceCredentials.pexels?.apiKey?.trim();
+      const geminiKey = serviceCredentials.gemini?.apiKey?.trim();
       let dataUrl = null;
 
-      if (pexelsKey) {
-        // Pexels 실사 이미지 검색
-        const query = prompt.split(/[,.]/ )[0].trim();
+      if (geminiKey) {
+        // Gemini 2.0 Flash Image Generation
+        const imagePrompt = isCover
+          ? `Create a stunning magazine cover photo for: "${prompt}". Bright vivid colors, cinematic composition, professional photography. DO NOT include any text, letters, words, or writing in the image.`
+          : `Create a realistic photo that represents: "${prompt}". Natural lighting, professional DSLR photography, shallow depth of field. DO NOT include any text, letters, words, or writing in the image.`;
+
         const resp = await fetch(
-          `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=5&orientation=square&size=large`,
-          { headers: { Authorization: pexelsKey } }
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${geminiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: imagePrompt }] }],
+              generationConfig: { responseModalities: ["IMAGE"] },
+            }),
+          }
         );
         const data = await resp.json();
-        if (data.photos?.length) {
-          const photo = data.photos[Math.floor(Math.random() * data.photos.length)];
-          const imgResp = await fetch(photo.src.large2x || photo.src.large);
-          if (imgResp.ok) dataUrl = await toDataUrl(await imgResp.blob());
+        if (!resp.ok) throw new Error(data.error?.message || `Gemini API 오류 ${resp.status}`);
+        const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+        if (part?.inlineData?.data) {
+          dataUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
         }
       }
 
       if (!dataUrl) {
-        // Pollinations.ai - Flux 모델 (자연스러운 실사 이미지)
+        // 폴백: Pollinations.ai Flux 모델
         const fullPrompt = [
           prompt,
           "professional photography",
@@ -3008,9 +3025,9 @@ ${platformList}
         ].join(", ");
         const seed = Math.floor(Math.random() * 1000000);
         const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&model=flux&nologo=true&enhance=true&seed=${seed}`;
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`이미지 생성 오류 ${resp.status}`);
-        dataUrl = await toDataUrl(await resp.blob());
+        const pollResp = await fetch(url);
+        if (!pollResp.ok) throw new Error(`이미지 생성 오류 ${pollResp.status}`);
+        dataUrl = await toDataUrl(await pollResp.blob());
       }
 
       setCfCarouselImages(prev => ({ ...prev, [slideKey]: dataUrl }));
@@ -3222,6 +3239,38 @@ ${platformList}
     finally { setCfChatLoading(false); }
   };
 
+  // 인라인 AI 편집 핸들러
+  const handleInlineEdit = async (editKey, currentContent, request) => {
+    if (!request.trim()) return;
+    const history = cfInlineMessages[editKey] || [];
+    const newHistory = [...history, { role: "user", content: request }];
+    setCfInlineMessages(prev => ({ ...prev, [editKey]: newHistory }));
+    setCfInlineInput("");
+    setCfInlineLoading(true);
+    try {
+      const apiKey = serviceCredentials.openai?.apiKey?.trim();
+      if (!apiKey) throw new Error("OpenAI API 키가 없습니다. 설정에서 입력해주세요.");
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: `당신은 SNS 콘텐츠 편집 전문가입니다. 아래 콘텐츠를 사용자 요청에 따라 수정하고, 수정된 콘텐츠만 출력하세요. 설명이나 부연은 하지 마세요.\n\n현재 콘텐츠:\n${currentContent}` },
+            ...history,
+            { role: "user", content: request },
+          ],
+          temperature: 0.7,
+        }),
+      });
+      const data = await resp.json();
+      const reply = data.choices?.[0]?.message?.content?.trim() || "응답 오류";
+      setCfInlineMessages(prev => ({ ...prev, [editKey]: [...newHistory, { role: "assistant", content: reply }] }));
+    } catch (e) {
+      setCfInlineMessages(prev => ({ ...prev, [editKey]: [...newHistory, { role: "assistant", content: `오류: ${e.message}` }] }));
+    } finally { setCfInlineLoading(false); }
+  };
+
   const renderContentFlow = () => {
     const PLATFORM_NAMES = { twitter: "X (Twitter)", youtube: "YouTube", facebook: "Facebook", instagram: "Instagram", threads: "Threads" };
     const ALL_CF_PLATFORMS = ["instagram", "twitter", "facebook", "threads", "youtube"];
@@ -3322,15 +3371,87 @@ ${platformList}
                     <span style={{ fontSize: 14, fontWeight: 700 }}>생성 결과</span>
                     <button onClick={() => handleCfSaveToContents(cfKeyword, cfPlatforms, cfResults)} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>콘텐츠 관리에 저장 →</button>
                   </div>
-                  {cfPlatforms.filter(p => cfResults[p]).map(p => (
-                    <div key={p} style={{ ...cardStyle, marginBottom: 12 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: PLATFORMS[p].color }}>{PLATFORMS[p].icon} {PLATFORM_NAMES[p]}</span>
-                        <CopyBtn text={cfResults[p]} />
+                  {cfPlatforms.filter(p => cfResults[p]).map(p => {
+                    const editKey = `sns_${p}`;
+                    const isOpen = cfInlineEditOpen === editKey;
+                    const msgs = cfInlineMessages[editKey] || [];
+                    const lastAI = [...msgs].reverse().find(m => m.role === "assistant");
+                    return (
+                      <div key={p} style={{ ...cardStyle, marginBottom: 12 }}>
+                        {/* 헤더 */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: PLATFORMS[p].color }}>{PLATFORMS[p].icon} {PLATFORM_NAMES[p]}</span>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <CopyBtn text={cfResults[p]} />
+                            <button
+                              onClick={() => {
+                                setCfInlineEditOpen(isOpen ? null : editKey);
+                                if (!isOpen) setCfInlineInput("");
+                              }}
+                              style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: `1.5px solid ${isOpen ? "#6366f1" : "#e2e8f0"}`, background: isOpen ? "#eef2ff" : "#fff", color: isOpen ? "#6366f1" : "#6b7280", cursor: "pointer", fontWeight: 600 }}>
+                              ✨ AI 편집{isOpen ? " ▲" : " ▼"}
+                            </button>
+                          </div>
+                        </div>
+                        {/* 콘텐츠 textarea */}
+                        <div style={{ position: "relative" }}>
+                          <textarea value={cfResults[p]} onChange={e => setCfResults(prev => ({ ...prev, [p]: e.target.value }))} rows={4} style={{ ...inputStyle, background: "#f8fafc", border: "1px solid #f1f5f9", resize: "vertical" }} />
+                          <div style={{ position: "absolute", bottom: 8, right: 10, fontSize: 9, color: "#a5b4fc", fontWeight: 600, letterSpacing: "0.04em", pointerEvents: "none" }}>🤖 AI 생성</div>
+                        </div>
+                        {/* 인라인 AI 편집 패널 */}
+                        {isOpen && (
+                          <div style={{ marginTop: 10, borderTop: "1.5px solid #eef2ff", paddingTop: 10 }}>
+                            {/* 대화 메시지 */}
+                            {msgs.length > 0 && (
+                              <div style={{ maxHeight: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, marginBottom: 8, padding: "4px 0" }}>
+                                {msgs.map((m, i) => (
+                                  <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
+                                    <div style={{ maxWidth: "85%", padding: "7px 11px", borderRadius: m.role === "user" ? "10px 10px 2px 10px" : "10px 10px 10px 2px", background: m.role === "user" ? "#6366f1" : "#f1f5f9", color: m.role === "user" ? "#fff" : "#1a1a2e", fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                                      {m.content}
+                                    </div>
+                                  </div>
+                                ))}
+                                {cfInlineLoading && cfInlineEditOpen === editKey && (
+                                  <div style={{ display: "flex" }}><div style={{ padding: "7px 11px", borderRadius: "10px 10px 10px 2px", background: "#f1f5f9", fontSize: 12, color: "#94a3b8" }}>✍️ 편집 중...</div></div>
+                                )}
+                              </div>
+                            )}
+                            {/* AI 결과 반영 버튼 */}
+                            {lastAI && (
+                              <button
+                                onClick={() => setCfResults(prev => ({ ...prev, [p]: lastAI.content }))}
+                                style={{ width: "100%", marginBottom: 8, padding: "7px", borderRadius: 7, border: "1.5px solid #10b981", background: "#ecfdf5", color: "#059669", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                                ✅ 마지막 AI 결과 반영하기
+                              </button>
+                            )}
+                            {/* 입력창 */}
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <input
+                                value={cfInlineEditOpen === editKey ? cfInlineInput : ""}
+                                onChange={e => setCfInlineInput(e.target.value)}
+                                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleInlineEdit(editKey, cfResults[p], cfInlineInput); } }}
+                                placeholder='예) 더 짧게, 해시태그 추가, 톤을 친근하게...'
+                                style={{ ...inputStyle, flex: 1, fontSize: 12, padding: "8px 10px" }}
+                                disabled={cfInlineLoading && cfInlineEditOpen === editKey}
+                              />
+                              <button
+                                onClick={() => handleInlineEdit(editKey, cfResults[p], cfInlineInput)}
+                                disabled={cfInlineLoading && cfInlineEditOpen === editKey}
+                                style={{ padding: "8px 14px", borderRadius: 7, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                                전송
+                              </button>
+                            </div>
+                            {msgs.length > 0 && (
+                              <button onClick={() => setCfInlineMessages(prev => ({ ...prev, [editKey]: [] }))}
+                                style={{ marginTop: 4, fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#fff", color: "#94a3b8", cursor: "pointer" }}>
+                                대화 초기화
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <textarea value={cfResults[p]} onChange={e => setCfResults(prev => ({ ...prev, [p]: e.target.value }))} rows={4} style={{ ...inputStyle, background: "#f8fafc", border: "1px solid #f1f5f9", resize: "vertical" }} />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </>}
               </div>
             </div>
@@ -3403,7 +3524,7 @@ ${platformList}
                     return cy + lineH;
                   };
 
-                  const downloadSlide = async (isCover, d, gi, imgUrl) => {
+                  const renderSlideToDataUrl = async (isCover, d, gi, imgUrl) => {
                     const cvs = document.createElement('canvas');
                     cvs.width = 1080; cvs.height = 1080;
                     const ctx = cvs.getContext('2d');
@@ -3414,26 +3535,36 @@ ${platformList}
                         img.onerror = resolve;
                         img.src = imgUrl;
                       });
-                      ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(0, 0, 1080, 1080);
+                      // 밝게: 하단 텍스트 영역만 살짝 어둡게, 상단은 밝게
+                      const grad = ctx.createLinearGradient(0, 0, 0, 1080);
+                      grad.addColorStop(0, 'rgba(0,0,0,0.05)');
+                      grad.addColorStop(0.4, 'rgba(0,0,0,0.18)');
+                      grad.addColorStop(1, 'rgba(0,0,0,0.55)');
+                      ctx.fillStyle = grad; ctx.fillRect(0, 0, 1080, 1080);
                     } else {
                       const [c1, c2] = SLIDE_GRADIENTS[gi % SLIDE_GRADIENTS.length];
                       const g = ctx.createLinearGradient(0, 0, 1080, 1080);
                       g.addColorStop(0, c1); g.addColorStop(1, c2);
                       ctx.fillStyle = g; ctx.fillRect(0, 0, 1080, 1080);
-                      ctx.fillStyle = 'rgba(0,0,0,0.32)'; ctx.fillRect(0, 0, 1080, 1080);
+                      ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(0, 0, 1080, 1080);
                     }
+                    // 텍스트 그림자로 가독성 확보
+                    ctx.shadowColor = 'rgba(0,0,0,0.85)';
+                    ctx.shadowBlur = 18;
                     ctx.textAlign = 'center';
                     if (isCover) {
-                      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+                      ctx.shadowBlur = 0;
                       ctx.fillRect(60, 460, 960, 3);
+                      ctx.shadowBlur = 18;
                       ctx.fillStyle = '#fff';
                       ctx.font = `bold 82px ${KR_FONT}`;
                       wrapText(ctx, d.title, 540, 330, 900, 100);
-                      ctx.fillStyle = 'rgba(255,255,255,0.78)';
+                      ctx.fillStyle = 'rgba(255,255,255,0.85)';
                       ctx.font = `48px ${KR_FONT}`;
                       wrapText(ctx, d.subtitle || '', 540, 540, 900, 62);
                     } else {
-                      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+                      ctx.fillStyle = 'rgba(255,255,255,0.45)';
                       ctx.font = `bold 36px ${KR_FONT}`;
                       ctx.textAlign = 'right';
                       ctx.fillText(`0${d.no}`, 1020, 76);
@@ -3441,43 +3572,82 @@ ${platformList}
                       ctx.fillStyle = '#fff';
                       ctx.font = `bold 70px ${KR_FONT}`;
                       const by = wrapText(ctx, d.title, 540, 320, 940, 88);
-                      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                      ctx.shadowBlur = 0;
+                      ctx.fillStyle = 'rgba(255,255,255,0.35)';
                       ctx.fillRect(100, by + 10, 880, 2);
-                      ctx.fillStyle = 'rgba(255,255,255,0.88)';
+                      ctx.shadowBlur = 14;
+                      ctx.fillStyle = 'rgba(255,255,255,0.92)';
                       ctx.font = `42px ${KR_FONT}`;
                       wrapText(ctx, d.body, 540, by + 44, 920, 58);
                     }
+                    // AI 생성 워터마크
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+                    ctx.font = `22px ${KR_FONT}`;
+                    ctx.textAlign = 'right';
+                    ctx.fillText('🤖 AI 생성', 1055, 1055);
+                    return cvs.toDataURL('image/png');
+                  };
+
+                  const downloadSlide = async (isCover, d, gi, imgUrl) => {
+                    const dataUrl = await renderSlideToDataUrl(isCover, d, gi, imgUrl);
                     const lnk = document.createElement('a');
                     lnk.download = isCover ? 'cover.png' : `slide_${d.no}.png`;
-                    lnk.href = cvs.toDataURL('image/png'); lnk.click();
+                    lnk.href = dataUrl; lnk.click();
                   };
 
                   const allSlides = [
-                    { isCover: true, data: igData?.cover, gi: 0, label: 'COVER', slideKey: 'cover', prompt: `${cfCarouselKeyword} cover image, elegant, inspiring` },
-                    ...(igData?.slides || []).map((s, i) => ({ isCover: false, data: s, gi: i + 1, label: `0${s.no}`, slideKey: `slide_${s.no}`, prompt: s.imageDesc || `${cfCarouselKeyword} ${s.title}` }))
+                    { isCover: true, data: igData?.cover, gi: 0, label: 'COVER', slideKey: 'cover',
+                      prompt: [cfCarouselKeyword, igData?.cover?.title || '', 'magazine cover style', 'premium lifestyle photography', 'beautiful scenery', 'cinematic'].filter(Boolean).join(', ') },
+                    ...(igData?.slides || []).map((s, i) => ({ isCover: false, data: s, gi: i + 1, label: `0${s.no}`, slideKey: `slide_${s.no}`,
+                      prompt: s.imageDesc
+                        ? `${s.imageDesc}, ${cfCarouselKeyword}`
+                        : [cfCarouselKeyword, s.title, s.body?.slice(0, 40) || ''].filter(Boolean).join(', ')
+                    }))
                   ];
+
+                  const downloadAllAsZip = async () => {
+                    try {
+                      const { default: JSZip } = await import('https://esm.sh/jszip@3');
+                      const zip = new JSZip();
+                      for (const s of allSlides) {
+                        const dataUrl = await renderSlideToDataUrl(s.isCover, s.data, s.gi, cfCarouselImages[s.slideKey]);
+                        const base64 = dataUrl.split(',')[1];
+                        zip.file(s.isCover ? 'cover.png' : `slide_${s.data?.no}.png`, base64, { base64: true });
+                      }
+                      const blob = await zip.generateAsync({ type: 'blob' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `${cfCarouselKeyword}_카드뉴스.zip`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch(e) {
+                      alert('ZIP 다운로드 실패: ' + e.message);
+                    }
+                  };
 
                   return <>
                     {/* 헤더 */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>📸 인스타그램 카드뉴스</div>
-                        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>커버 1장 + 콘텐츠 슬라이드 5장 | DALL-E 3 실사 이미지</div>
+                        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>커버 1장 + 콘텐츠 슬라이드 5장</div>
                       </div>
                       <div style={{ display: "flex", gap: 8 }}>
                         <button
                           onClick={async () => {
                             for (const s of allSlides) {
-                              if (!cfCarouselImages[s.slideKey]) await cfGenerateImage(s.slideKey, s.prompt);
+                              if (!cfCarouselImages[s.slideKey]) await cfGenerateImage(s.slideKey, s.prompt, s.isCover);
                             }
                           }}
                           disabled={Object.values(cfCarouselImgLoading).some(Boolean)}
                           style={{ padding: "8px 14px", borderRadius: 8, border: "1.5px solid #6366f1", background: "#fff", color: "#6366f1", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                           {Object.values(cfCarouselImgLoading).some(Boolean) ? "🎨 생성 중..." : "🎨 전체 이미지 생성"}
                         </button>
-                        <button onClick={() => { allSlides.forEach((s, i) => setTimeout(() => downloadSlide(s.isCover, s.data, s.gi, cfCarouselImages[s.slideKey]), i * 400)); }}
+                        <button onClick={downloadAllAsZip}
                           style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                          ⬇ 전체 다운로드
+                          📦 ZIP 전체 다운로드
                         </button>
                       </div>
                     </div>
@@ -3492,7 +3662,10 @@ ${platformList}
                           <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center" }}>
                             <div style={{ width: 240, height: 240, borderRadius: 14, background: imgUrl ? `url(${imgUrl}) center/cover` : `linear-gradient(135deg,${c1},${c2})`, position: "relative", overflow: "hidden", boxShadow: "0 6px 20px rgba(0,0,0,0.2)", cursor: "pointer" }}
                               onClick={() => downloadSlide(item.isCover, item.data, item.gi, imgUrl)}>
-                              <div style={{ position: "absolute", inset: 0, background: imgUrl ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.3)" }} />
+                              {imgUrl
+                                ? <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,0.03) 0%, rgba(0,0,0,0.18) 40%, rgba(0,0,0,0.55) 100%)" }} />
+                                : <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.2)" }} />
+                              }
                               {!item.isCover && (
                                 <div style={{ position: "absolute", top: 10, right: 12, fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.5)", zIndex: 2 }}>{item.label}</div>
                               )}
@@ -3517,12 +3690,12 @@ ${platformList}
                                   </>
                                 )}
                               </div>
-                              <div style={{ position: "absolute", bottom: 8, right: 10, fontSize: 10, color: "rgba(255,255,255,0.55)", zIndex: 2 }}>{imgUrl ? "📷 실사" : "클릭=다운로드"}</div>
+                              <div style={{ position: "absolute", bottom: 8, right: 10, fontSize: 9, color: "rgba(255,255,255,0.6)", zIndex: 2, background: "rgba(0,0,0,0.35)", padding: "2px 6px", borderRadius: 6, letterSpacing: "0.03em" }}>🤖 AI 생성</div>
                             </div>
                             <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
                               <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>{item.isCover ? "커버" : `슬라이드 ${item.data?.no}`}</div>
                               <button
-                                onClick={() => cfGenerateImage(item.slideKey, item.prompt)}
+                                onClick={() => cfGenerateImage(item.slideKey, item.prompt, item.isCover)}
                                 disabled={!!imgLoading}
                                 style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, border: "1px solid #6366f1", background: imgUrl ? "#eef2ff" : "#fff", color: "#6366f1", cursor: "pointer", fontWeight: 600 }}>
                                 {imgLoading ? "..." : imgUrl ? "🔄" : "🎨"}
@@ -3638,6 +3811,7 @@ ${platformList}
                   </>;
                 })()}
                 {cfCarouselResult?.type === "blog" && <>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: "#059669", marginBottom: 12 }}>📝 블로그 콘텐츠</div>
                   <div style={cardStyle}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: "#6366f1" }}>📌 제목 옵션 3개</div>{(cfCarouselResult.data.titles || []).map((t, i) => <div key={i} style={{ padding: "8px 10px", background: "#f8fafc", borderRadius: 6, marginBottom: 6, fontSize: 13, fontWeight: 500, display: "flex", justifyContent: "space-between", alignItems: "center" }}><span>{i + 1}. {t}</span><CopyBtn text={t} /></div>)}</div>
                   <div style={cardStyle}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: "#6366f1" }}>🖼️ 썸네일 텍스트</div>{(cfCarouselResult.data.thumbnailTexts || []).map((t, i) => <div key={i} style={{ padding: "6px 10px", background: "#fef9c3", borderRadius: 6, marginBottom: 4, fontSize: 13 }}>{t}</div>)}</div>
                   <div style={cardStyle}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: "#6366f1" }}>✍️ 오프닝 훅</div><div style={{ fontSize: 13, lineHeight: 1.7, color: "#374151" }}>{cfCarouselResult.data.hook}</div></div>
@@ -3676,18 +3850,19 @@ ${platformList}
                   </div>
                   {cfInventionTab === "card" && <>
                     {(cfInventionResult.card.slides || []).map((s, i) => (
-                      <div key={i} style={cardStyle}>
+                      <div key={i} style={{ ...cardStyle, position: "relative" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontWeight: 700, fontSize: 13, color: "#6366f1" }}>슬라이드 {s.no}</span><CopyBtn text={`${s.title}\n${s.body}`} /></div>
                         <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{s.title}</div>
                         <div style={{ fontSize: 13, lineHeight: 1.6 }}>{s.body}</div>
                         <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 6, padding: "5px 8px", background: "#f8fafc", borderRadius: 6 }}>🎨 {s.imageDesc}</div>
+                        <div style={{ position: "absolute", bottom: 10, right: 12, fontSize: 9, color: "#a5b4fc", fontWeight: 600, letterSpacing: "0.04em", pointerEvents: "none" }}>🤖 AI 생성</div>
                       </div>
                     ))}
-                    <div style={cardStyle}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>캡션 & 해시태그</div><div style={{ fontSize: 13, marginBottom: 8 }}>{cfInventionResult.card.caption}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{(cfInventionResult.card.hashtags || []).map((h, i) => <span key={i} style={{ padding: "2px 8px", borderRadius: 12, background: "#fce7f3", color: "#db2777", fontSize: 11 }}>{h}</span>)}</div></div>
+                    <div style={{ ...cardStyle, position: "relative" }}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>캡션 & 해시태그</div><div style={{ fontSize: 13, marginBottom: 8 }}>{cfInventionResult.card.caption}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{(cfInventionResult.card.hashtags || []).map((h, i) => <span key={i} style={{ padding: "2px 8px", borderRadius: 12, background: "#fce7f3", color: "#db2777", fontSize: 11 }}>{h}</span>)}</div><div style={{ position: "absolute", bottom: 10, right: 12, fontSize: 9, color: "#a5b4fc", fontWeight: 600, letterSpacing: "0.04em", pointerEvents: "none" }}>🤖 AI 생성</div></div>
                   </>}
                   {cfInventionTab === "shorts" && <>
-                    <div style={{ ...cardStyle, background: "#fef9c3" }}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, color: "#d97706" }}>📺 유튜브 제목</div><div style={{ fontSize: 15, fontWeight: 700 }}>{cfInventionResult.shorts.ytTitle}</div></div>
-                    <div style={{ ...cardStyle, background: "#fef2f2" }}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, color: "#ef4444" }}>⚡ 처음 3초 훅</div><div style={{ fontSize: 14, fontWeight: 600 }}>{cfInventionResult.shorts.hook3sec}</div></div>
+                    <div style={{ ...cardStyle, background: "#fef9c3", position: "relative" }}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, color: "#d97706" }}>📺 유튜브 제목</div><div style={{ fontSize: 15, fontWeight: 700 }}>{cfInventionResult.shorts.ytTitle}</div><div style={{ position: "absolute", bottom: 10, right: 12, fontSize: 9, color: "#d97706", opacity: 0.6, fontWeight: 600, letterSpacing: "0.04em", pointerEvents: "none" }}>🤖 AI 생성</div></div>
+                    <div style={{ ...cardStyle, background: "#fef2f2", position: "relative" }}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, color: "#ef4444" }}>⚡ 처음 3초 훅</div><div style={{ fontSize: 14, fontWeight: 600 }}>{cfInventionResult.shorts.hook3sec}</div><div style={{ position: "absolute", bottom: 10, right: 12, fontSize: 9, color: "#d97706", opacity: 0.6, fontWeight: 600, letterSpacing: "0.04em", pointerEvents: "none" }}>🤖 AI 생성</div></div>
                     <div style={cardStyle}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>🎬 씬 구성</div>
                       {(cfInventionResult.shorts.scenes || []).map((s, i) => (
                         <div key={i} style={{ padding: "8px 10px", background: "#f8fafc", borderRadius: 6, marginBottom: 6, display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -3759,7 +3934,8 @@ ${platformList}
                     <span style={{ fontWeight: 700, fontSize: 14 }}>30개 콘텐츠 플랜</span>
                     <CopyBtn text={(cfPlanResult.plans || []).map(p => `${p.no}. [${p.platform}] ${p.title} | ${p.keyword} | ${p.contentType}`).join("\n")} />
                   </div>
-                  <div style={{ overflowX: "auto" }}>
+                  <div style={{ overflowX: "auto", position: "relative" }}>
+                    <div style={{ position: "absolute", bottom: 10, right: 12, fontSize: 9, color: "#a5b4fc", fontWeight: 600, letterSpacing: "0.04em", pointerEvents: "none", zIndex: 1 }}>🤖 AI 생성</div>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                       <thead><tr style={{ background: "#f8fafc" }}>{["#","키워드","플랫폼","유형","콘텐츠 제목","훅",""].map(h => <th key={h} style={{ padding: "8px 10px", textAlign: "left", borderBottom: "1px solid #e2e8f0", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
                       <tbody>{(cfPlanResult.plans || []).map((p, i) => (
@@ -3953,6 +4129,14 @@ ${platformList}
         desc: "OpenAI의 GPT 모델을 활용해 마스터 글을 각 SNS 플랫폼에 맞는 초안으로 자동 변환합니다. API 키를 저장하면 [초안 생성하기] 버튼이 실제 AI로 동작합니다.",
         fields: [
           { key: "apiKey", label: "API Key", placeholder: "sk-proj-xxxxxxxxxxxxxxxxxxxx", secret: true },
+        ],
+      },
+      gemini: {
+        label: "Google Gemini", icon: "✨", color: "#4285f4", url: "https://aistudio.google.com/apikey",
+        note: "aistudio.google.com/apikey → Create API key → 복사",
+        desc: "Google Gemini 2.0 Flash 이미지 생성 모델을 사용해 슬라이드 내용에 맞는 실사 이미지를 생성합니다. 커버는 화려한 매거진 스타일, 일반 슬라이드는 내용에 맞는 실사 사진으로 생성됩니다. 미입력 시 Pollinations AI로 대체됩니다.",
+        fields: [
+          { key: "apiKey", label: "API Key", placeholder: "AIzaSy-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", secret: true },
         ],
       },
       imgbb: {
