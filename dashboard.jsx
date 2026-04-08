@@ -2993,9 +2993,21 @@ ${platformList}
       }
 
       if (!dataUrl) {
-        // Pollinations.ai 폴백 (AI 생성, 무료)
-        const fullPrompt = `Instagram card news background, photorealistic, high quality, vibrant, cinematic lighting, no text, no watermark: ${prompt}`;
-        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
+        // Pollinations.ai - Flux 모델 (자연스러운 실사 이미지)
+        const fullPrompt = [
+          prompt,
+          "professional photography",
+          "DSLR photo",
+          "natural light",
+          "shallow depth of field",
+          "ultra realistic",
+          "8k resolution",
+          "no text",
+          "no watermark",
+          "no logo",
+        ].join(", ");
+        const seed = Math.floor(Math.random() * 1000000);
+        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&model=flux&nologo=true&enhance=true&seed=${seed}`;
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`이미지 생성 오류 ${resp.status}`);
         dataUrl = await toDataUrl(await resp.blob());
