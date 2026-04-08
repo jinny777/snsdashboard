@@ -2972,7 +2972,7 @@ ${platformList}
     }
   };
 
-  // 이미지 생성: Gemini 2.0 Flash → Pollinations AI(폴백)
+  // 이미지 생성: Imagen 3 → Gemini 2.0 Flash Exp → Pollinations AI(폴백)
   const cfGenerateImage = async (slideKey, prompt, isCover = false) => {
     setCfCarouselImgLoading(prev => ({ ...prev, [slideKey]: true }));
     const toDataUrl = (blob) => new Promise((resolve) => {
@@ -2985,27 +2985,48 @@ ${platformList}
       let dataUrl = null;
 
       if (geminiKey) {
-        // Gemini 2.0 Flash Image Generation
         const imagePrompt = isCover
-          ? `Create a stunning magazine cover photo for: "${prompt}". Bright vivid colors, cinematic composition, professional photography. DO NOT include any text, letters, words, or writing in the image.`
-          : `Create a realistic photo that represents: "${prompt}". Natural lighting, professional DSLR photography, shallow depth of field. DO NOT include any text, letters, words, or writing in the image.`;
+          ? `A stunning magazine cover photo about: ${prompt}. Bright vivid colors, cinematic composition, professional photography. No text, no letters, no words, no writing anywhere in the image.`
+          : `A realistic photo representing: ${prompt}. Natural lighting, professional DSLR photography, shallow depth of field. No text, no letters, no words, no writing anywhere in the image.`;
 
-        const resp = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${geminiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: imagePrompt }] }],
-              generationConfig: { responseModalities: ["IMAGE"] },
-            }),
-          }
-        );
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data.error?.message || `Gemini API 오류 ${resp.status}`);
-        const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-        if (part?.inlineData?.data) {
-          dataUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
+        // 1순위: Imagen 3 (Google의 전용 이미지 생성 모델)
+        try {
+          const imgResp = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${geminiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                instances: [{ prompt: imagePrompt }],
+                parameters: { sampleCount: 1, aspectRatio: "1:1" },
+              }),
+            }
+          );
+          const imgData = await imgResp.json();
+          const b64 = imgData.predictions?.[0]?.bytesBase64Encoded;
+          if (b64) dataUrl = `data:image/png;base64,${b64}`;
+        } catch (_) { /* 폴백으로 진행 */ }
+
+        // 2순위: Gemini 2.0 Flash Experimental
+        if (!dataUrl) {
+          try {
+            const gemResp = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${geminiKey}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: imagePrompt }] }],
+                  generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
+                }),
+              }
+            );
+            const gemData = await gemResp.json();
+            const part = gemData.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+            if (part?.inlineData?.data) {
+              dataUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
+            }
+          } catch (_) { /* 폴백으로 진행 */ }
         }
       }
 
