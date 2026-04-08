@@ -3696,16 +3696,28 @@ ${platformList}
                           <td style={{ padding: "7px 10px", maxWidth: 200 }}>{p.title}</td>
                           <td style={{ padding: "7px 10px", color: "#64748b", maxWidth: 160 }}>{p.hook}</td>
                           <td style={{ padding: "7px 10px" }}>
-                            <button
-                              onClick={() => {
-                                setCfKeyword(`${p.title}\n\n키워드: ${p.keyword}\n훅: ${p.hook}`);
-                                setCfPlatforms(ALL_CF_PLATFORMS.includes(p.platform) ? [p.platform] : ALL_CF_PLATFORMS);
-                                setCfResults(null);
-                                setCfTab("sns");
-                              }}
-                              style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: "#6366f1", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
-                              ✨ 초안 작성
-                            </button>
+                            <div style={{ display: "flex", gap: 4, flexDirection: "column" }}>
+                              <button
+                                onClick={() => {
+                                  setCfKeyword(`${p.title}\n\n키워드: ${p.keyword}\n훅: ${p.hook}`);
+                                  setCfPlatforms(ALL_CF_PLATFORMS.includes(p.platform) ? [p.platform] : ALL_CF_PLATFORMS);
+                                  setCfResults(null);
+                                  setCfTab("sns");
+                                }}
+                                style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: "#6366f1", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                                ✨ 초안 작성
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setCfCarouselKeyword(p.keyword || p.title);
+                                  setCfCarouselResult(null);
+                                  setCfCarouselImages({});
+                                  setCfTab("carousel");
+                                }}
+                                style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: "#ec4899", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                                📱 캐러셀
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}</tbody>
