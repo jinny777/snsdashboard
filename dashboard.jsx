@@ -473,9 +473,10 @@ export default function SNSDashboard() {
   const [cfBlogResult, setCfBlogResult] = useState(null);
   const [cfBlogLoading, setCfBlogLoading] = useState(false);
   // 월별 플래닝
-  const [cfPlanKeyword, setCfPlanKeyword] = useState("");
-  const [cfPlanResult, setCfPlanResult] = useState(null);
+  const [cfPlanKeyword, setCfPlanKeyword] = useState(() => localStorage.getItem("cf_plan_keyword") || "");
+  const [cfPlanResult, setCfPlanResult] = useState(() => { try { return JSON.parse(localStorage.getItem("cf_plan_result") || "null"); } catch { return null; } });
   const [cfPlanLoading, setCfPlanLoading] = useState(false);
+  const [cfPlanSavedList, setCfPlanSavedList] = useState(() => { try { return JSON.parse(localStorage.getItem("cf_plan_saved_list") || "[]"); } catch { return []; } });
   // AI 채팅 편집
   const [cfChatMessages, setCfChatMessages] = useState([]);
   const [cfChatInput, setCfChatInput] = useState("");
@@ -3166,6 +3167,15 @@ ${platformList}
       const json = raw.replace(/^```json\n?/, "").replace(/\n?```$/, "").trim();
       const planResult = JSON.parse(json);
       setCfPlanResult(planResult);
+      localStorage.setItem("cf_plan_result", JSON.stringify(planResult));
+      localStorage.setItem("cf_plan_keyword", cfPlanKeyword);
+      // 저장 목록에 추가
+      const newItem = { id: Date.now(), keyword: cfPlanKeyword, createdAt: new Date().toISOString(), plans: planResult.plans };
+      setCfPlanSavedList(prev => {
+        const updated = [newItem, ...prev].slice(0, 10);
+        localStorage.setItem("cf_plan_saved_list", JSON.stringify(updated));
+        return updated;
+      });
       saveCfHistory("plan", cfPlanKeyword, planResult);
     } catch (e) { alert(`생성 실패: ${e.message}`); } finally { setCfPlanLoading(false); }
   };
@@ -3694,10 +3704,40 @@ ${platformList}
           {/* ── 탭5: 월별 플래닝 ── */}
           {cfTab === "plan" && (
             <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 280px", ...cardStyle, display: "flex", flexDirection: "column", gap: 14 }}>
-                <div><label style={labelStyle}>브랜드 / 주제 *</label><input value={cfPlanKeyword} onChange={e => setCfPlanKeyword(e.target.value)} placeholder="예) 친환경 패션 브랜드" style={inputStyle} /></div>
-                <button onClick={handleCfPlan} disabled={cfPlanLoading} style={btnPrimary(cfPlanLoading)}>{cfPlanLoading ? "⚡ 생성 중 (30초)..." : "📅 30개 플랜 생성"}</button>
-                <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "center" }}>한 달치 30개 콘텐츠 플랜을 자동 생성합니다</div>
+              <div style={{ flex: "1 1 280px", display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ ...cardStyle, display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div><label style={labelStyle}>브랜드 / 주제 *</label><input value={cfPlanKeyword} onChange={e => setCfPlanKeyword(e.target.value)} placeholder="예) 친환경 패션 브랜드" style={inputStyle} /></div>
+                  <button onClick={handleCfPlan} disabled={cfPlanLoading} style={btnPrimary(cfPlanLoading)}>{cfPlanLoading ? "⚡ 생성 중 (30초)..." : "📅 30개 플랜 생성"}</button>
+                  <div style={{ fontSize: 11, color: "#94a3b8", textAlign: "center" }}>한 달치 30개 콘텐츠 플랜을 자동 생성합니다</div>
+                </div>
+                {/* 저장된 플랜 목록 */}
+                {cfPlanSavedList.length > 0 && (
+                  <div style={{ ...cardStyle }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: "#374151" }}>📂 저장된 플랜 목록</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {cfPlanSavedList.map((item) => {
+                        const d = new Date(item.createdAt);
+                        const dateStr = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+                        return (
+                          <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 8, background: cfPlanResult === item ? "#eef2ff" : "#f8fafc", border: "1px solid #e2e8f0" }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1a2e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.keyword}</div>
+                              <div style={{ fontSize: 11, color: "#94a3b8" }}>{dateStr} · {item.plans?.length || 0}개</div>
+                            </div>
+                            <button onClick={() => { setCfPlanResult({ plans: item.plans }); localStorage.setItem("cf_plan_result", JSON.stringify({ plans: item.plans })); }}
+                              style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid #6366f1", background: "#fff", color: "#6366f1", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
+                              불러오기
+                            </button>
+                            <button onClick={() => { setCfPlanSavedList(prev => { const u = prev.filter(x => x.id !== item.id); localStorage.setItem("cf_plan_saved_list", JSON.stringify(u)); return u; }); }}
+                              style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#fff", color: "#94a3b8", cursor: "pointer" }}>
+                              ✕
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
               <div style={{ flex: "3 1 500px" }}>
                 {!cfPlanResult && !cfPlanLoading && <EmptyState icon="📅" text="브랜드/주제를 입력하고 플랜을 생성하세요" />}
