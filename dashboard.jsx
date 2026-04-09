@@ -3208,7 +3208,7 @@ ${platformList}
     const appId = serviceCredentials.meta?.appId?.trim();
     if (!appId) { alert("Meta App ID를 먼저 입력하고 저장해주세요.\n연동 관리 > 서비스 연동 > Meta"); return; }
     const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
-    const scope = "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement";
+    const scope = "instagram_content_publish,pages_show_list,pages_read_engagement,business_management";
     const url = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=token`;
     const popup = window.open(url, "ig_oauth", "width=600,height=700,left=200,top=100");
     setIgOAuthLoading(true);
