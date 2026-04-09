@@ -516,8 +516,11 @@ export default function SNSDashboard() {
   const [integrationTab, setIntegrationTab] = useState("sns");
   // SNS 플랫폼 순서 (드래그 앤 드롭으로 변경, localStorage에 자동 저장)
   const [snsOrder, setSnsOrder] = useState(() => {
+    const defaults = ["twitter", "youtube", "facebook", "instagram", "threads", "naver"];
     const saved = localStorage.getItem("snsOrder");
-    return saved ? JSON.parse(saved) : ["twitter", "youtube", "facebook", "instagram", "threads"];
+    if (!saved) return defaults;
+    const parsed = JSON.parse(saved);
+    return parsed.includes("naver") ? parsed : [...parsed, "naver"];
   });
   const dragSnsRef = useRef(null);
 
