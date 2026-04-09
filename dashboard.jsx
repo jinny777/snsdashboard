@@ -4188,11 +4188,9 @@ ${platformList}
                         <button
                           onClick={async () => {
                             const pending = allSlides.filter(s => !cfCarouselImages[s.slideKey]);
-                            // 동시 2장씩 생성 (Pollinations Rate Limit 방지)
-                            for (let i = 0; i < pending.length; i += 2) {
-                              await Promise.all(
-                                pending.slice(i, i + 2).map(s => cfGenerateImage(s.slideKey, s.prompt, s.isCover))
-                              );
+                            for (let i = 0; i < pending.length; i++) {
+                              await cfGenerateImage(pending[i].slideKey, pending[i].prompt, pending[i].isCover);
+                              if (i < pending.length - 1) await new Promise(r => setTimeout(r, 1500));
                             }
                           }}
                           disabled={Object.values(cfCarouselImgLoading).some(Boolean)}
