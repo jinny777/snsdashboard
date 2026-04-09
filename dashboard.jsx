@@ -482,6 +482,14 @@ export default function SNSDashboard() {
   const [cfChatInput, setCfChatInput] = useState("");
   const [cfChatLoading, setCfChatLoading] = useState(false);
   const [cfChatContext, setCfChatContext] = useState("");
+  // (이전 빠른 발행 패널 — 발행 관리 페이지로 통합됨)
+  // 발행 관리 페이지 상태
+  const [pubSelId, setPubSelId] = useState(null);
+  const [pubSchedule, setPubSchedule] = useState("");
+  const [pubLoading, setPubLoading] = useState({});
+  const [pubResult, setPubResult] = useState({});
+  const [pubFilterStatus, setPubFilterStatus] = useState("all");
+  const [pubSearchQ, setPubSearchQ] = useState("");
   // 인라인 AI 편집 (각 카드 내)
   const [cfInlineEditOpen, setCfInlineEditOpen] = useState(null); // key: "sns_instagram" | "sns_twitter" 등
   const [cfInlineMessages, setCfInlineMessages] = useState({});  // { key: [{role, content}] }
@@ -492,6 +500,7 @@ export default function SNSDashboard() {
     { id: "home", label: "홈", icon: Icons.Home },
     { id: "contents", label: "콘텐츠 관리", icon: Icons.Edit },
     { id: "contentflow", label: "콘텐츠 생성", icon: Icons.Zap },
+    { id: "publish", label: "발행 관리", icon: Icons.Send },
     { id: "community", label: "커뮤니티", icon: Icons.MessageCircle },
     { id: "research", label: "리서치", icon: Icons.Search },
   ];
@@ -2177,7 +2186,8 @@ ${platformList}
                 </thead>
                 <tbody>
                   {filtered.map((content, i) => (
-                    <tr key={content.id}
+                    <React.Fragment key={content.id}>
+                    <tr
                       style={{ borderBottom: i < filtered.length - 1 ? "1px solid #f1f5f9" : "none" }}
                       onMouseEnter={e => e.currentTarget.style.background = "#fafbfd"}
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}
@@ -2220,40 +2230,15 @@ ${platformList}
                             }}>
                             삭제
                           </button>
-                          <button style={{ ...styles.btnSm(false), fontSize: 11, padding: "4px 8px", background: "#6366f1", color: "#fff", border: "none" }}
-                            onClick={async () => {
-                              // X 발행
-                              if (content.platforms?.includes("twitter") && content.platformDrafts?.twitter?.trim()) {
-                                try {
-                                  const { data, error } = await supabase.functions.invoke("post-x", {
-                                    body: { text: content.platformDrafts.twitter },
-                                  });
-                                  if (error) throw new Error(error.message);
-                                  if (data?.success) {
-                                    alert(`✅ X 발행 완료!\n${data.url}`);
-                                  } else {
-                                    alert(`❌ X 발행 실패: ${data?.error}`);
-                                    return;
-                                  }
-                                } catch (e) {
-                                  alert(`❌ X 발행 오류: ${e.message}`);
-                                  return;
-                                }
-                              }
-                              const now = new Date().toISOString().replace("T", " ").slice(0, 16);
-                              const updateFields = { status: "published" };
-                              if (!content.firstPublishedAt) updateFields.first_published_at = now;
-                              else updateFields.updated_at = now;
-                              const { error } = await supabase.from("contents").update(updateFields).eq("id", content.id);
-                              if (error) { alert("발행 상태 저장 오류: " + error.message); return; }
-                              const updated = { ...content, status: "published", firstPublishedAt: content.firstPublishedAt || now, updatedAt: content.firstPublishedAt ? now : content.updatedAt };
-                              setContentsList(prev => prev.map(c => c.id === content.id ? updated : c));
-                            }}>
-                            즉시발행
+                          <button
+                            style={{ ...styles.btnSm(false), fontSize: 11, padding: "4px 10px", background: "#6366f1", color: "#fff", border: "none" }}
+                            onClick={() => { setPubSelId(content.id); setPubResult({}); setPubSchedule(""); setActiveMenu("publish"); }}>
+                            📤 발행
                           </button>
                         </div>
                       </td>
                     </tr>
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
@@ -2684,6 +2669,261 @@ ${platformList}
   };
 
   // ========================
+  //  PAGE: PUBLISH (발행 관리)
+  // ========================
+  const renderPublish = () => {
+    const PUBLISH_PLATFORM_LIST = [
+      { key: "twitter",   label: "X (Twitter)",  icon: "𝕏",  connected: !!(snsCredentials.twitter?.apiKey) },
+      { key: "instagram", label: "Instagram",     icon: "📸", connected: !!(snsCredentials.instagram?.accessToken && snsCredentials.instagram?.userId) },
+      { key: "naver",     label: "Naver Blog",    icon: "📝", connected: !!(snsCredentials.naver?.accessToken) },
+      { key: "youtube",   label: "YouTube",       icon: "▶️", connected: !!(snsCredentials.youtube?.accessToken) },
+    ];
+
+    const STATUS_LABELS_PUB = { draft: "초안", review: "검토중", scheduled: "예약됨", published: "발행완료" };
+    const STATUS_COLORS_PUB = { draft: "#94a3b8", review: "#f59e0b", scheduled: "#6366f1", published: "#10b981" };
+
+    // 컴포넌트 레벨 상태 사용 (pubSelId, pubSchedule, pubLoading, pubResult, pubFilterStatus, pubSearchQ)
+    const selectedContent = contentsList.find(c => c.id === pubSelId) || null;
+
+    const filtered = contentsList.filter(c => {
+      if (pubFilterStatus !== "all" && c.status !== pubFilterStatus) return false;
+      if (pubSearchQ && !c.title?.toLowerCase().includes(pubSearchQ.toLowerCase())) return false;
+      return true;
+    });
+
+    const handlePublish = async (platformKey) => {
+      if (!selectedContent) return;
+      const isSchedule = !!pubSchedule;
+      if (isSchedule) {
+        const { error } = await supabase.from("contents")
+          .update({ status: "scheduled", scheduled_at: pubSchedule })
+          .eq("id", selectedContent.id);
+        if (error) { setPubResult(prev => ({ ...prev, [platformKey]: `❌ ${error.message}` })); return; }
+        setContentsList(prev => prev.map(c => c.id === selectedContent.id ? { ...c, status: "scheduled", scheduledAt: pubSchedule } : c));
+        setPubResult(prev => ({ ...prev, [platformKey]: `⏰ 예약 완료: ${pubSchedule}` }));
+        return;
+      }
+      setPubLoading(prev => ({ ...prev, [platformKey]: true }));
+      try {
+        let msg = "";
+        if (platformKey === "twitter") {
+          const { data, error } = await supabase.functions.invoke("post-x", {
+            body: { text: selectedContent.platformDrafts?.twitter || selectedContent.masterText },
+          });
+          if (error) throw new Error(error.message);
+          if (!data?.success) throw new Error(data?.error);
+          msg = `✅ 발행완료 ${data.url || ""}`;
+        } else if (platformKey === "instagram") {
+          const caption = selectedContent.platformDrafts?.instagram || selectedContent.masterText;
+          const cardImg = generateTextCard(caption, selectedContent.title);
+          const url = await publishInstagramPost(caption, cardImg);
+          msg = `✅ 발행완료 ${url}`;
+        } else if (platformKey === "naver") {
+          await publishNaverBlog(selectedContent.title, selectedContent.platformDrafts?.naver || selectedContent.masterText);
+          msg = "✅ Naver 비공개 저장 완료 (Naver에서 공개 설정하세요)";
+        } else if (platformKey === "youtube") {
+          const postId = await publishYouTubePost(selectedContent.platformDrafts?.youtube || selectedContent.masterText);
+          msg = `✅ YouTube 커뮤니티 발행완료 ID:${postId}`;
+        }
+        const now = new Date().toISOString().replace("T", " ").slice(0, 16);
+        const upd = { status: "published" };
+        if (!selectedContent.firstPublishedAt) upd.first_published_at = now;
+        else upd.updated_at = now;
+        await supabase.from("contents").update(upd).eq("id", selectedContent.id);
+        setContentsList(prev => prev.map(c => c.id === selectedContent.id ? { ...c, status: "published", firstPublishedAt: c.firstPublishedAt || now } : c));
+        setPubResult(prev => ({ ...prev, [platformKey]: msg }));
+      } catch (e) {
+        setPubResult(prev => ({ ...prev, [platformKey]: `❌ ${e.message}` }));
+      }
+      setPubLoading(prev => ({ ...prev, [platformKey]: false }));
+    };
+
+    return (
+      <div>
+        {/* 헤더 */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={styles.pageTitle}>발행 관리</div>
+          <div style={styles.pageSubtitle}>저장된 콘텐츠를 불러와 즉시 발행하거나 예약 등록하세요</div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: 20, alignItems: "start" }}>
+
+          {/* 좌측: 콘텐츠 목록 */}
+          <div style={{ ...styles.card, padding: 0, overflow: "hidden" }}>
+            <div style={{ padding: "14px 16px", borderBottom: "1px solid #f1f5f9", display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                style={{ ...styles.input, flex: 1, fontSize: 12, padding: "6px 10px" }}
+                placeholder="제목 검색..."
+                value={pubSearchQ}
+                onChange={e => setPubSearchQ(e.target.value)}
+              />
+              <select
+                value={pubFilterStatus}
+                onChange={e => setPubFilterStatus(e.target.value)}
+                style={{ ...styles.input, fontSize: 12, padding: "6px 8px", width: "auto" }}
+              >
+                <option value="all">전체</option>
+                <option value="draft">초안</option>
+                <option value="scheduled">예약됨</option>
+                <option value="published">발행완료</option>
+              </select>
+            </div>
+            <div style={{ maxHeight: "calc(100vh - 280px)", overflowY: "auto" }}>
+              {filtered.length === 0 ? (
+                <div style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+                  콘텐츠가 없습니다<br />
+                  <span style={{ fontSize: 11 }}>콘텐츠 생성 탭에서 생성 후 저장하세요</span>
+                </div>
+              ) : filtered.map(c => (
+                <div
+                  key={c.id}
+                  onClick={() => { setPubSelId(c.id); setPubResult({}); setPubSchedule(""); }}
+                  style={{
+                    padding: "12px 16px",
+                    borderBottom: "1px solid #f1f5f9",
+                    cursor: "pointer",
+                    background: pubSelId === c.id ? "#ede9fe" : "transparent",
+                    borderLeft: pubSelId === c.id ? "3px solid #6366f1" : "3px solid transparent",
+                    transition: "all 0.15s",
+                  }}
+                  onMouseEnter={e => { if (pubSelId !== c.id) e.currentTarget.style.background = "#f8fafc"; }}
+                  onMouseLeave={e => { if (pubSelId !== c.id) e.currentTarget.style.background = "transparent"; }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1a2e", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {c.title || "(제목 없음)"}
+                    </div>
+                    <span style={{ ...styles.badge(STATUS_COLORS_PUB[c.status]), flexShrink: 0 }}>{STATUS_LABELS_PUB[c.status]}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {c.masterText ? c.masterText.slice(0, 50) + "..." : "내용 없음"}
+                  </div>
+                  <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                    {c.platforms?.map(p => <span key={p} style={{ fontSize: 13 }} title={PLATFORMS[p]?.name}>{PLATFORMS[p]?.icon}</span>)}
+                  </div>
+                  {c.scheduledAt && (
+                    <div style={{ fontSize: 10, color: "#6366f1", marginTop: 4 }}>⏰ {c.scheduledAt}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 우측: 발행 패널 */}
+          <div>
+            {!selectedContent ? (
+              <div style={{ ...styles.card, textAlign: "center", padding: 60, color: "#94a3b8" }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>📤</div>
+                <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>콘텐츠를 선택하세요</div>
+                <div style={{ fontSize: 12 }}>왼쪽 목록에서 발행할 콘텐츠를 클릭하면<br />플랫폼별 발행 옵션이 표시됩니다</div>
+              </div>
+            ) : (
+              <>
+                {/* 선택된 콘텐츠 정보 */}
+                <div style={{ ...styles.card, marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: "#1a1a2e" }}>{selectedContent.title || "(제목 없음)"}</div>
+                      <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>{selectedContent.masterText?.slice(0, 100)}...</div>
+                    </div>
+                    <span style={styles.badge(STATUS_COLORS_PUB[selectedContent.status])}>{STATUS_LABELS_PUB[selectedContent.status]}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {selectedContent.platforms?.map(p => (
+                      <span key={p} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: "#f1f5f9", color: "#475569" }}>
+                        {PLATFORMS[p]?.icon} {PLATFORMS[p]?.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 발행 시간 설정 */}
+                <div style={{ ...styles.card, marginBottom: 16 }}>
+                  <div style={styles.cardTitle}>⏱ 발행 시간</div>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                      <input type="radio" name="pubMode" checked={!pubSchedule} onChange={() => setPubSchedule("")} />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>🚀 즉시 발행</span>
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                      <input type="radio" name="pubMode" checked={!!pubSchedule} onChange={() => { if (!pubSchedule) { const d = new Date(); d.setHours(d.getHours() + 1); setPubSchedule(d.toISOString().slice(0, 16)); } }} />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>⏰ 예약 발행</span>
+                    </label>
+                    {pubSchedule && (
+                      <input
+                        type="datetime-local"
+                        value={pubSchedule}
+                        onChange={e => setPubSchedule(e.target.value)}
+                        style={{ ...styles.input, fontSize: 12, padding: "6px 10px", width: "auto" }}
+                      />
+                    )}
+                  </div>
+                  {pubSchedule && (
+                    <div style={{ marginTop: 8, fontSize: 11, color: "#92400e", background: "#fef3c7", padding: "6px 10px", borderRadius: 6 }}>
+                      ⏰ {pubSchedule} 에 자동 발행됩니다. 각 플랫폼의 "예약 등록" 버튼을 누르세요.
+                    </div>
+                  )}
+                </div>
+
+                {/* 플랫폼별 발행 */}
+                <div style={styles.card}>
+                  <div style={styles.cardTitle}>📡 플랫폼별 발행</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    {PUBLISH_PLATFORM_LIST.filter(pp => selectedContent.platforms?.includes(pp.key)).map(pp => {
+                      const res = pubResult[pp.key];
+                      const loading = pubLoading[pp.key];
+                      const draft = selectedContent.platformDrafts?.[pp.key] || selectedContent.masterText || "";
+                      return (
+                        <div key={pp.key} style={{ padding: 16, borderRadius: 10, border: `1.5px solid ${pp.connected ? "#c7d2fe" : "#e2e8f0"}`, background: pp.connected ? "#f5f7ff" : "#fafafa" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                            <span style={{ fontSize: 22 }}>{pp.icon}</span>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>{pp.label}</div>
+                              <div style={{ fontSize: 10, color: pp.connected ? "#10b981" : "#ef4444" }}>
+                                {pp.connected ? "● 연동됨" : "● 미연동 — 연동 관리에서 설정 필요"}
+                              </div>
+                            </div>
+                          </div>
+                          {draft && (
+                            <div style={{ fontSize: 11, color: "#64748b", background: "#f8fafc", borderRadius: 6, padding: "6px 8px", marginBottom: 10, maxHeight: 80, overflowY: "auto", lineHeight: 1.5 }}>
+                              {draft.slice(0, 120)}{draft.length > 120 ? "..." : ""}
+                            </div>
+                          )}
+                          {res && (
+                            <div style={{ fontSize: 11, marginBottom: 8, padding: "5px 8px", borderRadius: 6, background: res.startsWith("✅") || res.startsWith("⏰") ? "#d1fae5" : "#fee2e2", color: res.startsWith("✅") || res.startsWith("⏰") ? "#065f46" : "#991b1b", wordBreak: "break-all", lineHeight: 1.4 }}>
+                              {res}
+                            </div>
+                          )}
+                          <button
+                            disabled={!pp.connected || !!loading}
+                            onClick={() => handlePublish(pp.key)}
+                            style={{
+                              width: "100%", padding: "8px 0", borderRadius: 7, border: "none",
+                              background: !pp.connected ? "#e2e8f0" : pubSchedule ? "#f59e0b" : "#6366f1",
+                              color: !pp.connected ? "#94a3b8" : "#fff",
+                              fontWeight: 700, fontSize: 13, cursor: pp.connected ? "pointer" : "not-allowed",
+                            }}>
+                            {loading ? "처리 중..." : !pp.connected ? "연동 필요" : pubSchedule ? "⏰ 예약 등록" : "🚀 즉시 발행"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {selectedContent.platforms?.filter(p => PUBLISH_PLATFORM_LIST.some(pp => pp.key === p)).length === 0 && (
+                      <div style={{ gridColumn: "1/-1", color: "#94a3b8", fontSize: 12, textAlign: "center", padding: 24 }}>
+                        이 콘텐츠에 설정된 발행 가능 플랫폼이 없습니다
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ========================
   //  PAGE: ANALYTICS
   // ========================
   const renderAnalytics = () => (
@@ -3006,19 +3246,6 @@ ${platformList}
     }, 700);
   };
 
-  const uploadToImgbb = async (dataUrl) => {
-    const imgbbKey = serviceCredentials.imgbb?.apiKey?.trim();
-    if (!imgbbKey) throw new Error("imgbb API 키가 없습니다.\n연동 관리 > 서비스 연동 > imgbb에서 키를 저장해주세요.\n(imgbb.com 무료 가입 후 발급)");
-    const base64 = dataUrl.split(",")[1];
-    const form = new FormData();
-    form.append("key", imgbbKey);
-    form.append("image", base64);
-    const resp = await fetch("https://api.imgbb.com/1/upload", { method: "POST", body: form });
-    const data = await resp.json();
-    if (!data.success) throw new Error("imgbb 업로드 실패: " + (data.error?.message || ""));
-    return data.data.url;
-  };
-
   const postSlideToInstagram = async (slideKey, dataUrl, caption) => {
     const { accessToken, userId } = snsCredentials.instagram || {};
     if (!accessToken || !userId) {
@@ -3205,6 +3432,33 @@ ${platformList}
     setEditingContent({ id: null, title, masterText: title, status: "draft", scheduledAt: null, platforms, platformDrafts: drafts, publishResults: {}, registrant: "", registeredAt: new Date().toISOString().slice(0, 10) });
     setContentsView("edit");
     setActiveMenu("contents");
+  };
+
+  // 콘텐츠 생성 결과를 Supabase에 바로 저장 후 발행 관리 페이지로 이동
+  const handleCfSaveAndGoPublish = async (title, platforms, drafts) => {
+    const newContent = {
+      title,
+      masterText: title,
+      status: "draft",
+      scheduledAt: null,
+      platforms,
+      platformDrafts: drafts,
+      publishResults: {},
+      registrant: "",
+      registeredAt: new Date().toISOString().slice(0, 10),
+    };
+    try {
+      const { data, error } = await supabase.from("contents").insert(contentToDb(newContent)).select().single();
+      if (error) throw new Error(error.message);
+      const saved = dbToContent(data);
+      setContentsList(prev => [saved, ...prev]);
+      setPubSelId(saved.id);
+      setPubResult({});
+      setPubSchedule("");
+      setActiveMenu("publish");
+    } catch (e) {
+      alert(`저장 실패: ${e.message}`);
+    }
   };
 
   // 브랜드 분석
@@ -3658,8 +3912,12 @@ ${platformList}
                 {cfResults && <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <span style={{ fontSize: 14, fontWeight: 700 }}>생성 결과</span>
-                    <button onClick={() => handleCfSaveToContents(cfKeyword, cfPlatforms, cfResults)} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>콘텐츠 관리에 저장 →</button>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => handleCfSaveToContents(cfKeyword, cfPlatforms, cfResults)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", color: "#374151", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>💾 콘텐츠 저장</button>
+                      <button onClick={() => handleCfSaveAndGoPublish(cfKeyword, cfPlatforms, cfResults)} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>📤 저장 후 발행 관리로</button>
+                    </div>
                   </div>
+
                   {cfPlatforms.filter(p => cfResults[p]).map(p => {
                     const editKey = `sns_${p}`;
                     const isOpen = cfInlineEditOpen === editKey;
@@ -3935,8 +4193,21 @@ ${platformList}
                           {Object.values(cfCarouselImgLoading).some(Boolean) ? "🎨 생성 중..." : "🎨 전체 이미지 생성"}
                         </button>
                         <button onClick={downloadAllAsZip}
-                          style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                          style={{ padding: "8px 14px", borderRadius: 8, border: "1.5px solid #6366f1", background: "#fff", color: "#6366f1", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                           📦 ZIP 전체 다운로드
+                        </button>
+                        <button
+                          onClick={async () => {
+                            const caption = igData.slides?.map((s, i) => `[${i + 1}] ${s.title}\n${s.body}`).join("\n\n") || "";
+                            const hashtags = igData.hashtags ? "\n\n" + igData.hashtags : "";
+                            await handleCfSaveAndGoPublish(
+                              cfCarouselKeyword || "카드뉴스",
+                              ["instagram"],
+                              { instagram: caption + hashtags }
+                            );
+                          }}
+                          style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                          📤 저장 후 발행 관리로
                         </button>
                       </div>
                     </div>
@@ -4052,7 +4323,19 @@ ${platformList}
                     {/* 블로그 (both 타입인 경우) */}
                     {blogData && (
                       <div style={{ marginTop: 8 }}>
-                        <div style={{ fontWeight: 700, fontSize: 15, color: "#059669", marginBottom: 12, paddingTop: 12, borderTop: "2px solid #e2e8f0" }}>📝 블로그 콘텐츠</div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, paddingTop: 12, borderTop: "2px solid #e2e8f0" }}>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: "#059669" }}>📝 블로그 콘텐츠</div>
+                          <button
+                            onClick={async () => {
+                              const title = blogData.titles?.[0] || cfCarouselKeyword || "블로그 포스트";
+                              const naverDraft = `${blogData.hook || ""}\n\n${blogData.body || ""}`;
+                              const igCaption = igData.slides?.map((s, i) => `[${i + 1}] ${s.title}\n${s.body}`).join("\n\n") || "";
+                              await handleCfSaveAndGoPublish(title, ["instagram", "naver"], { instagram: igCaption, naver: naverDraft });
+                            }}
+                            style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                            📤 저장 후 발행 관리로
+                          </button>
+                        </div>
                         <div style={cardStyle}>
                           <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: "#6366f1" }}>📌 제목 옵션 3개</div>
                           {(blogData.titles || []).map((t, i) => (
@@ -4100,7 +4383,19 @@ ${platformList}
                   </>;
                 })()}
                 {cfCarouselResult?.type === "blog" && <>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: "#059669", marginBottom: 12 }}>📝 블로그 콘텐츠</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: "#059669" }}>📝 블로그 콘텐츠</div>
+                    <button
+                      onClick={async () => {
+                        const d = cfCarouselResult.data;
+                        const title = d.titles?.[0] || cfCarouselKeyword || "블로그 포스트";
+                        const naverDraft = `${d.hook || ""}\n\n${d.body || ""}`;
+                        await handleCfSaveAndGoPublish(title, ["naver"], { naver: naverDraft });
+                      }}
+                      style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#059669", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                      📤 저장 후 발행 관리로
+                    </button>
+                  </div>
                   <div style={cardStyle}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: "#6366f1" }}>📌 제목 옵션 3개</div>{(cfCarouselResult.data.titles || []).map((t, i) => <div key={i} style={{ padding: "8px 10px", background: "#f8fafc", borderRadius: 6, marginBottom: 6, fontSize: 13, fontWeight: 500, display: "flex", justifyContent: "space-between", alignItems: "center" }}><span>{i + 1}. {t}</span><CopyBtn text={t} /></div>)}</div>
                   <div style={cardStyle}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: "#6366f1" }}>🖼️ 썸네일 텍스트</div>{(cfCarouselResult.data.thumbnailTexts || []).map((t, i) => <div key={i} style={{ padding: "6px 10px", background: "#fef9c3", borderRadius: 6, marginBottom: 4, fontSize: 13 }}>{t}</div>)}</div>
                   <div style={cardStyle}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: "#6366f1" }}>✍️ 오프닝 훅</div><div style={{ fontSize: 13, lineHeight: 1.7, color: "#374151" }}>{cfCarouselResult.data.hook}</div></div>
@@ -5042,6 +5337,7 @@ ${platformList}
       case "home": return renderHome();
       case "contents": return renderContents();
       case "contentflow": return renderContentFlow();
+      case "publish": return renderPublish();
       case "community": return renderCommunity();
       case "research": return renderResearch();
       case "sns-integration": return renderSnsIntegration();
