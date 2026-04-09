@@ -375,7 +375,7 @@ export default function SNSDashboard() {
   const [draftPrompts, setDraftPrompts] = useState([]);
   const [selectedPromptId, setSelectedPromptId] = useState(null); // null | "new" | number(id)
   const [draftPromptEdit, setDraftPromptEdit] = useState({ title: "", content: "" });
-  const [draftGenPlatforms, setDraftGenPlatforms] = useState(["twitter", "youtube", "facebook", "instagram", "threads"]);
+  const [draftGenPlatforms, setDraftGenPlatforms] = useState(["twitter", "youtube", "facebook", "instagram", "threads", "naver"]);
   const [isDraftGenerating, setIsDraftGenerating] = useState(false);
   const [optimizationTab, setOptimizationTab] = useState("pattern");
   useEffect(() => {
@@ -549,7 +549,8 @@ export default function SNSDashboard() {
         twitter:   { bearerToken: "", consumerKey: "", consumerKeySecret: "", accessToken: "", accessTokenSecret: "", clientId: "", clientSecret: "", ...local.twitter },
         threads:   { appId: "", accessToken: "", ...local.threads },
         instagram: { accessToken: "", userId: "", ...local.instagram },
-        youtube:   { clientId: "", clientSecret: "", ...local.youtube },
+        youtube:   { clientId: "", clientSecret: "", accessToken: "", channelId: "", channelName: "", ...local.youtube },
+        naver:     { clientId: "", clientSecret: "", accessToken: "", blogId: "", ...local.naver },
       };
     } catch {
       return {
@@ -557,7 +558,8 @@ export default function SNSDashboard() {
         twitter:   { bearerToken: "", consumerKey: "", consumerKeySecret: "", accessToken: "", accessTokenSecret: "", clientId: "", clientSecret: "" },
         threads:   { appId: "", accessToken: "" },
         instagram: { accessToken: "", userId: "" },
-        youtube:   { clientId: "", clientSecret: "" },
+        youtube:   { clientId: "", clientSecret: "", accessToken: "", channelId: "", channelName: "" },
+        naver:     { clientId: "", clientSecret: "", accessToken: "", blogId: "" },
       };
     }
   });
@@ -623,6 +625,48 @@ export default function SNSDashboard() {
     loadCredentials();
   }, []);
 
+  // 예약 발행 자동 실행기 (1분마다 due 포스트 체크)
+  useEffect(() => {
+    const executeScheduled = async () => {
+      const now = new Date();
+      const due = contentsList.filter(
+        c => c.status === "scheduled" && c.scheduledAt && new Date(c.scheduledAt) <= now
+      );
+      if (!due.length) return;
+      for (const post of due) {
+        const results = { ...post.publishResults };
+        // Instagram
+        if (post.platforms?.includes("instagram") && post.platformDrafts?.instagram?.trim()) {
+          try {
+            const url = await publishInstagramPost(post.platformDrafts.instagram, generateTextCard(post.platformDrafts.instagram, post.title));
+            results.instagram = `예약발행완료 ${new Date().toLocaleDateString("ko-KR")} | ${url}`;
+          } catch (e) { results.instagram = `오류: ${e.message}`; }
+        }
+        // Naver Blog
+        if (post.platforms?.includes("naver") && post.platformDrafts?.naver?.trim()) {
+          try {
+            await publishNaverBlog(post.title, post.platformDrafts.naver);
+            results.naver = `예약발행완료 ${new Date().toLocaleDateString("ko-KR")}`;
+          } catch (e) { results.naver = `오류: ${e.message}`; }
+        }
+        // YouTube
+        if (post.platforms?.includes("youtube") && post.platformDrafts?.youtube?.trim()) {
+          try {
+            const id = await publishYouTubePost(post.platformDrafts.youtube);
+            results.youtube = `예약발행완료 ${new Date().toLocaleDateString("ko-KR")} | ID: ${id}`;
+          } catch (e) { results.youtube = `오류: ${e.message}`; }
+        }
+        const updated = { ...post, status: "published", publishResults: results, firstPublishedAt: post.firstPublishedAt || new Date().toISOString().slice(0,16) };
+        setContentsList(prev => prev.map(c => c.id === post.id ? updated : c));
+        // Supabase 업데이트 시도
+        try { await supabase.from("contents").update({ status: "published", publish_results: results }).eq("id", post.id); } catch {}
+      }
+    };
+    executeScheduled();
+    const t = setInterval(executeScheduled, 60000);
+    return () => clearInterval(t);
+  }, [contentsList]); // eslint-disable-line
+
   // 편집 화면 초안 자동 생성 (OpenAI API 호출)
   const handleDraftGenerate = async () => {
     if (!editingContent?.masterText?.trim()) {
@@ -645,13 +689,14 @@ export default function SNSDashboard() {
 
     setIsDraftGenerating(true);
 
-    const PLATFORM_NAMES = { twitter: "X (Twitter)", youtube: "YouTube 커뮤니티", facebook: "Facebook", instagram: "Instagram", threads: "Threads" };
+    const PLATFORM_NAMES = { twitter: "X (Twitter)", youtube: "YouTube 커뮤니티", facebook: "Facebook", instagram: "Instagram", threads: "Threads", naver: "Naver Blog" };
     const PLATFORM_GUIDES = {
       twitter:   "140자 이내, 간결하고 임팩트 있게, 해시태그 3개 이하",
       youtube:   "200자 이내, 친근하고 상세하게, 유튜브 커뮤니티 게시글 형식",
       facebook:  "공감형·커뮤니티 친화적, 질문으로 마무리, 이모지 적절히 사용",
       instagram: "감성적·비주얼 중심, 줄바꿈 활용, 해시태그 10개 이하",
       threads:   "짧고 대화체, 200자 이내, 가볍게 읽히는 톤",
+      naver:     "SEO 최적화 블로그 글, H2/H3 구조, 800자 이상, 이미지 추천 포함",
     };
 
     const platformList = draftGenPlatforms
@@ -1419,6 +1464,44 @@ ${platformList}
             return;
           }
 
+          // Instagram 발행
+          if (toSave.platforms?.includes("instagram") && toSave.platformDrafts?.instagram?.trim()) {
+            try {
+              const caption = toSave.platformDrafts.instagram;
+              const cardImg = generateTextCard(caption, toSave.title);
+              const url = await publishInstagramPost(caption, cardImg);
+              results.instagram = `발행완료 ${new Date().toLocaleDateString("ko-KR")} | ${url}`;
+              alert(`✅ Instagram 발행 완료!\n${url}`);
+            } catch (e) {
+              results.instagram = `오류: ${e.message}`;
+              alert(`❌ Instagram 발행 실패: ${e.message}`);
+            }
+          }
+
+          // Naver Blog 발행
+          if (toSave.platforms?.includes("naver") && toSave.platformDrafts?.naver?.trim()) {
+            try {
+              await publishNaverBlog(toSave.title, toSave.platformDrafts.naver);
+              results.naver = `발행완료 ${new Date().toLocaleDateString("ko-KR")}`;
+              alert("✅ Naver Blog 게시 완료! (비공개 저장 → Naver에서 공개 설정)");
+            } catch (e) {
+              results.naver = `오류: ${e.message}`;
+              alert(`❌ Naver Blog 발행 실패: ${e.message}`);
+            }
+          }
+
+          // YouTube 커뮤니티 포스트 발행
+          if (toSave.platforms?.includes("youtube") && toSave.platformDrafts?.youtube?.trim()) {
+            try {
+              const postId = await publishYouTubePost(toSave.platformDrafts.youtube);
+              results.youtube = `발행완료 ${new Date().toLocaleDateString("ko-KR")} | ID: ${postId}`;
+              alert("✅ YouTube 커뮤니티 포스트 발행 완료!");
+            } catch (e) {
+              results.youtube = `오류: ${e.message}`;
+              alert(`❌ YouTube 발행 실패: ${e.message}`);
+            }
+          }
+
           toSave.publishResults = { ...toSave.publishResults, ...results };
 
           // 최초 발행일 / 수정일 자동 기록
@@ -1717,24 +1800,27 @@ ${platformList}
                     {/* 플랫폼 선택 */}
                     <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 8 }}>생성할 플랫폼 선택</div>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-                      {draftPlatformOrder.map(p => (
-                        <button
-                          key={p}
-                          onClick={() => setDraftGenPlatforms(prev =>
-                            prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]
-                          )}
-                          style={{
-                            display: "flex", alignItems: "center", gap: 4,
-                            padding: "4px 10px", borderRadius: 100, border: "none", cursor: "pointer",
-                            fontSize: 11, fontWeight: 600,
-                            background: draftGenPlatforms.includes(p) ? PLATFORMS[p].color : "#f1f5f9",
-                            color: draftGenPlatforms.includes(p) ? "#fff" : "#94a3b8",
-                            transition: "all 0.15s",
-                          }}
-                        >
-                          {PLATFORMS[p].icon} {PLATFORMS[p].name}
-                        </button>
-                      ))}
+                      {[...draftPlatformOrder, "naver"].map(p => {
+                        const pInfo = PLATFORMS[p] || { icon: "📗", name: "Naver Blog", color: "#03C75A" };
+                        return (
+                          <button
+                            key={p}
+                            onClick={() => setDraftGenPlatforms(prev =>
+                              prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]
+                            )}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 4,
+                              padding: "4px 10px", borderRadius: 100, border: "none", cursor: "pointer",
+                              fontSize: 11, fontWeight: 600,
+                              background: draftGenPlatforms.includes(p) ? pInfo.color : "#f1f5f9",
+                              color: draftGenPlatforms.includes(p) ? "#fff" : "#94a3b8",
+                              transition: "all 0.15s",
+                            }}
+                          >
+                            {pInfo.icon} {pInfo.name}
+                          </button>
+                        );
+                      })}
                     </div>
 
                     {/* 초안 생성 버튼 */}
@@ -3069,13 +3155,14 @@ ${platformList}
     setCfResults(null);
 
     const TONE_MAP = { professional: "전문적이고 신뢰감 있는", emotional: "감성적이고 공감 가는", casual: "친근하고 가벼운 대화체" };
-    const PLATFORM_NAMES = { twitter: "X (Twitter)", youtube: "YouTube 커뮤니티", facebook: "Facebook", instagram: "Instagram", threads: "Threads" };
+    const PLATFORM_NAMES = { twitter: "X (Twitter)", youtube: "YouTube 커뮤니티", facebook: "Facebook", instagram: "Instagram", threads: "Threads", naver: "Naver Blog" };
     const PLATFORM_GUIDES = {
       twitter:   "140자 이내, 간결하고 임팩트 있게, 해시태그 3개 이하",
       youtube:   "200자 이내, 친근하고 상세하게, 유튜브 커뮤니티 게시글 형식",
       facebook:  "공감형·커뮤니티 친화적, 질문으로 마무리, 이모지 적절히 사용",
       instagram: "감성적·비주얼 중심, 줄바꿈 활용, 해시태그 10개 이하",
       threads:   "짧고 대화체, 200자 이내, 가볍게 읽히는 톤",
+      naver:     "SEO 최적화 블로그 글, H2/H3 구조, 800자 이상, 이미지 추천 포함",
     };
     const platformList = cfPlatforms.map(p => `- ${PLATFORM_NAMES[p]}: ${PLATFORM_GUIDES[p]}`).join("\n");
     const brandInfo = cfBrand.trim() ? `\n브랜드 정보: ${cfBrand.trim()}` : "";
@@ -3228,6 +3315,187 @@ ${platformList}
       });
       saveCfHistory("plan", cfPlanKeyword, planResult);
     } catch (e) { alert(`생성 실패: ${e.message}`); } finally { setCfPlanLoading(false); }
+  };
+
+  // ═══════════════════════════════════════
+  //  발행 & 예약 발행 유틸리티
+  // ═══════════════════════════════════════
+
+  // 텍스트 → 정사각 카드 이미지 (Canvas, 1080×1080)
+  const generateTextCard = (text, title = "") => {
+    const cvs = document.createElement("canvas");
+    cvs.width = 1080; cvs.height = 1080;
+    const ctx = cvs.getContext("2d");
+    const GRADIENTS = [["#6366f1","#8b5cf6"],["#ec4899","#f43f5e"],["#0ea5e9","#6366f1"],["#10b981","#0ea5e9"]];
+    const [c1, c2] = GRADIENTS[Math.floor(Math.random() * GRADIENTS.length)];
+    const g = ctx.createLinearGradient(0, 0, 1080, 1080);
+    g.addColorStop(0, c1); g.addColorStop(1, c2);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 1080, 1080);
+    ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillRect(0, 0, 1080, 1080);
+    const KR = '"Malgun Gothic","Apple SD Gothic Neo","NanumGothic",sans-serif';
+    ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 20;
+    ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+    // 제목
+    if (title) {
+      ctx.font = `bold 64px ${KR}`;
+      ctx.fillText(title.slice(0, 20), 540, 380);
+    }
+    // 본문 (word wrap)
+    ctx.font = `44px ${KR}`;
+    const words = text.split(" "); let line = ""; let y = title ? 500 : 440;
+    for (const w of words) {
+      const test = line ? line + " " + w : w;
+      if (ctx.measureText(test).width > 900 && line) {
+        ctx.fillText(line, 540, y); line = w; y += 60;
+        if (y > 900) break;
+      } else { line = test; }
+    }
+    if (line && y <= 900) ctx.fillText(line, 540, y);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255,255,255,0.4)"; ctx.font = `22px ${KR}`; ctx.textAlign = "right";
+    ctx.fillText("🤖 AI 생성", 1055, 1055);
+    return cvs.toDataURL("image/png");
+  };
+
+  // Base64 dataUrl → imgbb 업로드 → 공개 URL 반환
+  const uploadToImgbb = async (dataUrl) => {
+    const key = serviceCredentials.imgbb?.apiKey?.trim();
+    if (!key) throw new Error("imgbb API 키가 필요합니다. (설정 > imgbb)");
+    const base64 = dataUrl.split(",")[1];
+    const form = new FormData();
+    form.append("image", base64);
+    const resp = await fetch(`https://api.imgbb.com/1/upload?key=${key}`, { method: "POST", body: form });
+    const data = await resp.json();
+    if (!data.success) throw new Error(`imgbb 업로드 실패: ${data.error?.message || "알 수 없는 오류"}`);
+    return data.data.url;
+  };
+
+  // Instagram 텍스트+이미지 발행 (Graph API)
+  const publishInstagramPost = async (caption, imageDataUrl) => {
+    const { accessToken, userId } = snsCredentials.instagram;
+    if (!accessToken || !userId) throw new Error("Instagram 연동이 필요합니다. (연동 관리 > Instagram)");
+    const imageUrl = await uploadToImgbb(imageDataUrl || generateTextCard(caption));
+    const mediaResp = await fetch(`https://graph.facebook.com/v19.0/${userId}/media`, {
+      method: "POST",
+      body: new URLSearchParams({ image_url: imageUrl, caption, access_token: accessToken }),
+    });
+    const mediaData = await mediaResp.json();
+    if (mediaData.error) throw new Error(mediaData.error.message);
+    const publishResp = await fetch(`https://graph.facebook.com/v19.0/${userId}/media_publish`, {
+      method: "POST",
+      body: new URLSearchParams({ creation_id: mediaData.id, access_token: accessToken }),
+    });
+    const publishData = await publishResp.json();
+    if (publishData.error) throw new Error(publishData.error.message);
+    return `https://www.instagram.com/p/${publishData.id}`;
+  };
+
+  // Naver Blog 발행 (Vercel API 프록시)
+  const publishNaverBlog = async (title, htmlContent, tags = []) => {
+    const { accessToken } = snsCredentials.naver;
+    if (!accessToken) throw new Error("Naver 연동이 필요합니다. (연동 관리 > Naver Blog)");
+    const resp = await fetch("/api/naver-blog", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessToken, title, contents: htmlContent, tag: tags.join(",") }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Naver Blog 게시 실패");
+    return data;
+  };
+
+  // YouTube OAuth2 팝업 → access_token + channelId 자동 저장
+  const startYouTubeOAuth = () => {
+    const clientId = snsCredentials.youtube?.clientId?.trim();
+    if (!clientId) { alert("YouTube Client ID를 먼저 입력해주세요. (연동 관리 > YouTube)"); return; }
+    const scope = encodeURIComponent(
+      "https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtube.upload"
+    );
+    const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=${scope}`;
+    const popup = window.open(url, "yt_oauth", "width=600,height=700,left=200,top=100");
+    const poll = setInterval(async () => {
+      try {
+        if (!popup || popup.closed) { clearInterval(poll); return; }
+        const hash = popup.location.hash;
+        if (hash && hash.includes("access_token")) {
+          const params = new URLSearchParams(hash.slice(1));
+          const token = params.get("access_token");
+          if (token) {
+            clearInterval(poll); popup.close();
+            // 채널 정보 조회
+            let channelId = ""; let channelName = "";
+            try {
+              const chResp = await fetch("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true", {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              const chData = await chResp.json();
+              channelId = chData.items?.[0]?.id || "";
+              channelName = chData.items?.[0]?.snippet?.title || "";
+            } catch {}
+            setSnsCredentials(prev => {
+              const updated = { ...prev, youtube: { ...prev.youtube, accessToken: token, channelId, channelName } };
+              localStorage.setItem("sns_credentials", JSON.stringify(updated));
+              return updated;
+            });
+            alert(`✅ YouTube 연동 완료!\n채널: ${channelName || channelId}`);
+          }
+        }
+      } catch {}
+    }, 500);
+  };
+
+  // YouTube 커뮤니티 포스트 발행
+  const publishYouTubePost = async (text, imageDataUrl) => {
+    const { accessToken, channelId } = snsCredentials.youtube;
+    if (!accessToken) throw new Error("YouTube 연동이 필요합니다. (연동 관리 > YouTube)");
+    const body = {
+      snippet: { textOriginal: text },
+      status: { isPublic: true },
+    };
+    if (imageDataUrl && channelId) {
+      try {
+        const imgUrl = await uploadToImgbb(imageDataUrl);
+        body.snippet.attachments = [{ imageInfo: { originalUrl: imgUrl } }];
+      } catch {}
+    }
+    const resp = await fetch("https://www.googleapis.com/youtube/v3/posts?part=snippet,status", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message || "YouTube 게시 실패");
+    return data.id;
+  };
+
+  // Naver OAuth2 팝업
+  const startNaverOAuth = () => {
+    const clientId = snsCredentials.naver?.clientId?.trim();
+    if (!clientId) { alert("Naver Client ID를 먼저 입력해주세요. (연동 관리 > Naver Blog)"); return; }
+    const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
+    const state = Math.random().toString(36).slice(2);
+    const url = `https://nid.naver.com/oauth2.0/authorize?response_type=token&client_id=${clientId}&redirect_uri=${redirectUri}&state=${state}`;
+    const popup = window.open(url, "naver_oauth", "width=600,height=700,left=200,top=100");
+    const poll = setInterval(() => {
+      try {
+        if (!popup || popup.closed) { clearInterval(poll); return; }
+        const hash = popup.location.hash;
+        if (hash && hash.includes("access_token")) {
+          const params = new URLSearchParams(hash.slice(1));
+          const token = params.get("access_token");
+          if (token) {
+            clearInterval(poll); popup.close();
+            setSnsCredentials(prev => {
+              const updated = { ...prev, naver: { ...prev.naver, accessToken: token } };
+              localStorage.setItem("sns_credentials", JSON.stringify(updated));
+              return updated;
+            });
+            alert("✅ Naver 연동 완료!");
+          }
+        }
+      } catch {}
+    }, 500);
   };
 
   // AI 채팅 편집
@@ -4235,10 +4503,35 @@ ${platformList}
       },
       { id: "youtube",
         label: "YouTube", icon: "▶️", color: "#FF0000", url: "https://console.cloud.google.com",
-        note: "Google Cloud Console → OAuth 2.0 클라이언트 ID 생성 (youtube_auth.py로 토큰 발급)",
+        note: "Google Cloud Console → OAuth 2.0 클라이언트 ID 생성 → 아래 버튼으로 자동 연동",
+        extraButton: (
+          <button onClick={startYouTubeOAuth}
+            style={{ width: "100%", padding: "11px", borderRadius: 8, border: "none", background: snsCredentials.youtube?.accessToken ? "#16a34a" : "#FF0000", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 8 }}>
+            {snsCredentials.youtube?.accessToken
+              ? `✅ 연동됨: ${snsCredentials.youtube.channelName || snsCredentials.youtube.channelId}`
+              : "🔐 Google 계정으로 YouTube 연동"}
+          </button>
+        ),
         fields: [
-          { key: "clientId",     label: "Client ID",     placeholder: "xxxxxx.apps.googleusercontent.com", secret: false },
-          { key: "clientSecret", label: "Client Secret", placeholder: "GOCSPX-xxxxxxxxxx", secret: true },
+          { key: "clientId",     label: "Client ID (Google Cloud)",  placeholder: "xxxxxx.apps.googleusercontent.com", secret: false },
+          { key: "clientSecret", label: "Client Secret",             placeholder: "GOCSPX-xxxxxxxxxx", secret: true },
+          { key: "accessToken",  label: "Access Token (자동입력)",   placeholder: "ya29.xxxxxxx", secret: true },
+          { key: "channelId",    label: "Channel ID (자동입력)",     placeholder: "UCxxxxxxxxxx", secret: false },
+        ],
+      },
+      { id: "naver",
+        label: "Naver Blog", icon: "📗", color: "#03C75A", url: "https://developers.naver.com",
+        note: "developers.naver.com → 내 애플리케이션 → 블로그 권한 추가 → 아래 버튼으로 연동",
+        extraButton: (
+          <button onClick={startNaverOAuth}
+            style={{ width: "100%", padding: "11px", borderRadius: 8, border: "none", background: snsCredentials.naver?.accessToken ? "#16a34a" : "#03C75A", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 8 }}>
+            {snsCredentials.naver?.accessToken ? "✅ Naver 연동됨" : "🔐 Naver 로그인으로 Blog 연동"}
+          </button>
+        ),
+        fields: [
+          { key: "clientId",    label: "애플리케이션 Client ID",    placeholder: "xxxxxxxxxxxx", secret: false },
+          { key: "clientSecret",label: "Client Secret",             placeholder: "xxxxxxxxxxxx", secret: true },
+          { key: "accessToken", label: "Access Token (자동입력)",   placeholder: "AAAAxxxxxx",   secret: true },
         ],
       },
       { id: "facebook",
