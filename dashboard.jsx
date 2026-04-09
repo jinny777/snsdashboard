@@ -3310,7 +3310,7 @@ ${platformList}
       }
 
       if (!dataUrl) {
-        // 폴백: Pollinations.ai Flux 모델 (enhance 제거로 속도 향상)
+        // 폴백: Pollinations.ai Flux 모델 (429 시 최대 3회 재시도)
         const fullPrompt = [
           prompt,
           "professional photography",
@@ -3321,7 +3321,12 @@ ${platformList}
         ].join(", ");
         const seed = Math.floor(Math.random() * 1000000);
         const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&model=flux&nologo=true&seed=${seed}`;
-        const pollResp = await fetchWithTimeout(url, {}, 30000);
+        let pollResp;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 3000 * attempt)); // 3초, 6초 대기
+          pollResp = await fetchWithTimeout(url, {}, 35000);
+          if (pollResp.status !== 429) break;
+        }
         if (!pollResp.ok) throw new Error(`이미지 생성 오류 ${pollResp.status}`);
         dataUrl = await toDataUrl(await pollResp.blob());
       }
@@ -4182,11 +4187,13 @@ ${platformList}
                       <div style={{ display: "flex", gap: 8 }}>
                         <button
                           onClick={async () => {
-                            await Promise.all(
-                              allSlides
-                                .filter(s => !cfCarouselImages[s.slideKey])
-                                .map(s => cfGenerateImage(s.slideKey, s.prompt, s.isCover))
-                            );
+                            const pending = allSlides.filter(s => !cfCarouselImages[s.slideKey]);
+                            // 동시 2장씩 생성 (Pollinations Rate Limit 방지)
+                            for (let i = 0; i < pending.length; i += 2) {
+                              await Promise.all(
+                                pending.slice(i, i + 2).map(s => cfGenerateImage(s.slideKey, s.prompt, s.isCover))
+                              );
+                            }
                           }}
                           disabled={Object.values(cfCarouselImgLoading).some(Boolean)}
                           style={{ padding: "8px 14px", borderRadius: 8, border: "1.5px solid #6366f1", background: "#fff", color: "#6366f1", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
