@@ -3519,8 +3519,9 @@ ${platformList}
             `키워드: ${cfCarouselKeyword}`
           ),
           cfCallOpenAI(
-            `당신은 네이버 인기 블로거입니다. 아래 키워드로 블로그 글을 작성하세요.
-반드시 JSON만 응답: {"titles":["제목1","제목2","제목3"],"thumbnailTexts":["썸네일1","썸네일2"],"hook":"오프닝 훅(2문장)","body":"본문HTML(H2/H3/ul/table 포함, 최소 800자)","imageRecommends":["이미지추천1","이미지추천2","이미지추천3"],"internalLinks":["링크주제1","링크주제2"],"hashtags":["태그1","태그2","태그3","태그4","태그5","태그6","태그7","태그8","태그9","태그10"],"cta":"마무리 CTA"}`,
+            `당신은 네이버 상위 노출 전문 블로거입니다. 아래 키워드로 네이버 검색 상단 노출에 최적화된 블로그 글을 작성하세요.
+규칙: ①제목에 키워드 포함 ②도입부 첫 문장에 키워드 ③소제목마다 키워드 변형 포함 ④이미지 삽입 위치 표시([IMAGE_1],[IMAGE_2] 형태) ⑤HTML 태그 없이 순수 텍스트
+반드시 JSON만 응답: {"titles":["제목1(키워드+클릭유도)","제목2","제목3"],"thumbnailTexts":["썸네일1","썸네일2"],"hook":"강력한 오프닝 훅(2문장, 첫 문장에 키워드 포함)","body":"본문 순수텍스트(소제목은 [소제목: 내용] 형식, 이미지 위치는 [IMAGE_1] [IMAGE_2] [IMAGE_3] 표시, 최소 1000자, 자연스러운 키워드 3회 이상 반복)","imageRecommends":["이미지추천1","이미지추천2","이미지추천3"],"internalLinks":["연관키워드1","연관키워드2"],"hashtags":["태그1","태그2","태그3","태그4","태그5","태그6","태그7","태그8","태그9","태그10"],"cta":"마무리 CTA 문장"}`,
             `키워드: ${cfCarouselKeyword}`
           ),
         ]);
@@ -3538,8 +3539,9 @@ ${platformList}
         saveCfHistory("carousel", cfCarouselKeyword, result);
       } else {
         const raw = await cfCallOpenAI(
-          `당신은 네이버 인기 블로거입니다. 아래 키워드로 블로그 글을 작성하세요.
-반드시 JSON만 응답: {"titles":["제목1(클릭 유도)","제목2","제목3"],"thumbnailTexts":["썸네일텍스트1","썸네일텍스트2"],"hook":"강력한 오프닝 훅(2문장)","body":"본문HTML(H2/H3/ul/table 태그 포함, 최소 800자)","imageRecommends":["이미지추천1","이미지추천2","이미지추천3"],"internalLinks":["내부링크주제1","내부링크주제2"],"hashtags":["해시태그1","해시태그2","해시태그3","해시태그4","해시태그5","해시태그6","해시태그7","해시태그8","해시태그9","해시태그10"],"cta":"마무리 CTA 문장"}`,
+          `당신은 네이버 상위 노출 전문 블로거입니다. 아래 키워드로 네이버 검색 상단 노출에 최적화된 블로그 글을 작성하세요.
+규칙: ①제목에 키워드 포함 ②도입부 첫 문장에 키워드 ③소제목마다 키워드 변형 포함 ④이미지 삽입 위치 표시([IMAGE_1],[IMAGE_2] 형태) ⑤HTML 태그 없이 순수 텍스트
+반드시 JSON만 응답: {"titles":["제목1(키워드+클릭유도)","제목2","제목3"],"thumbnailTexts":["썸네일텍스트1","썸네일텍스트2"],"hook":"강력한 오프닝 훅(2문장, 첫 문장에 키워드 포함)","body":"본문 순수텍스트(소제목은 [소제목: 내용] 형식, 이미지 위치는 [IMAGE_1] [IMAGE_2] [IMAGE_3] 표시, 최소 1000자, 자연스러운 문단으로 구성)","imageRecommends":["이미지추천1","이미지추천2","이미지추천3"],"internalLinks":["내부링크주제1","내부링크주제2"],"hashtags":["해시태그1","해시태그2","해시태그3","해시태그4","해시태그5","해시태그6","해시태그7","해시태그8","해시태그9","해시태그10"],"cta":"마무리 CTA 문장"}`,
           `키워드: ${cfCarouselKeyword}`
         );
         const result = { type: "blog", data: parseJ(raw) };
@@ -3669,6 +3671,31 @@ ${platformList}
     const publishData = await publishResp.json();
     if (publishData.error) throw new Error(publishData.error.message);
     return `https://www.instagram.com/p/${publishData.id}`;
+  };
+
+  // 네이버 블로그용 HTML 변환: [소제목: 내용] + [IMAGE_N] 플레인텍스트 → HTML
+  const buildNaverHtml = (plainText, images = {}) => {
+    if (!plainText) return "";
+    const lines = plainText.split("\n");
+    let html = "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) { html += "<br>\n"; continue; }
+      const imgMatch = trimmed.match(/^\[IMAGE_(\d+)\]$/);
+      if (imgMatch) {
+        const idx = parseInt(imgMatch[1]);
+        const imgUrl = images[`slide_${idx}`];
+        if (imgUrl) html += `<img src="${imgUrl}" style="max-width:100%;margin:16px 0;display:block;" />\n`;
+        continue;
+      }
+      const headingMatch = trimmed.match(/^\[소제목:\s*(.+)\]$/);
+      if (headingMatch) {
+        html += `<h2 style="margin:24px 0 12px;font-size:18px;font-weight:700;color:#1a1a1a;">${headingMatch[1]}</h2>\n`;
+        continue;
+      }
+      html += `<p style="margin:0 0 12px;line-height:1.8;">${trimmed}</p>\n`;
+    }
+    return html;
   };
 
   // Naver Blog 발행 (Vercel API 프록시)
@@ -4355,9 +4382,10 @@ ${platformList}
                           <button
                             onClick={async () => {
                               const title = blogData.titles?.[0] || cfCarouselKeyword || "블로그 포스트";
-                              const naverDraft = `${blogData.hook || ""}\n\n${blogData.body || ""}`;
+                              const plainBody = `${blogData.hook || ""}\n\n${blogData.body || ""}`;
+                              const naverHtml = buildNaverHtml(plainBody, cfCarouselImages);
                               const igCaption = igData.slides?.map((s, i) => `[${i + 1}] ${s.title}\n${s.body}`).join("\n\n") || "";
-                              await handleCfSaveAndGoPublish(title, ["instagram", "naver"], { instagram: igCaption, naver: naverDraft });
+                              await handleCfSaveAndGoPublish(title, ["instagram", "naver"], { instagram: igCaption, naver: naverHtml });
                             }}
                             style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                             📤 저장 후 발행 관리로
@@ -4384,10 +4412,10 @@ ${platformList}
                         </div>
                         <div style={cardStyle}>
                           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                            <span style={{ fontWeight: 700, fontSize: 13, color: "#6366f1" }}>📄 본문 HTML</span>
+                            <span style={{ fontWeight: 700, fontSize: 13, color: "#6366f1" }}>📄 본문 텍스트 (발행 시 이미지 자동 삽입)</span>
                             <CopyBtn text={blogData.body} />
                           </div>
-                          <textarea value={blogData.body || ""} readOnly rows={10} style={{ ...inputStyle, background: "#f8fafc", resize: "vertical", fontSize: 12, fontFamily: "monospace" }} />
+                          <textarea value={blogData.body || ""} readOnly rows={10} style={{ ...inputStyle, background: "#f8fafc", resize: "vertical", fontSize: 12, lineHeight: 1.7 }} />
                         </div>
                         <div style={{ display: "flex", gap: 12 }}>
                           <div style={{ ...cardStyle, flex: 1 }}>
@@ -4416,8 +4444,9 @@ ${platformList}
                       onClick={async () => {
                         const d = cfCarouselResult.data;
                         const title = d.titles?.[0] || cfCarouselKeyword || "블로그 포스트";
-                        const naverDraft = `${d.hook || ""}\n\n${d.body || ""}`;
-                        await handleCfSaveAndGoPublish(title, ["naver"], { naver: naverDraft });
+                        const plainBody = `${d.hook || ""}\n\n${d.body || ""}`;
+                        const naverHtml = buildNaverHtml(plainBody, cfCarouselImages);
+                        await handleCfSaveAndGoPublish(title, ["naver"], { naver: naverHtml });
                       }}
                       style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#059669", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                       📤 저장 후 발행 관리로
@@ -4426,7 +4455,7 @@ ${platformList}
                   <div style={cardStyle}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: "#6366f1" }}>📌 제목 옵션 3개</div>{(cfCarouselResult.data.titles || []).map((t, i) => <div key={i} style={{ padding: "8px 10px", background: "#f8fafc", borderRadius: 6, marginBottom: 6, fontSize: 13, fontWeight: 500, display: "flex", justifyContent: "space-between", alignItems: "center" }}><span>{i + 1}. {t}</span><CopyBtn text={t} /></div>)}</div>
                   <div style={cardStyle}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: "#6366f1" }}>🖼️ 썸네일 텍스트</div>{(cfCarouselResult.data.thumbnailTexts || []).map((t, i) => <div key={i} style={{ padding: "6px 10px", background: "#fef9c3", borderRadius: 6, marginBottom: 4, fontSize: 13 }}>{t}</div>)}</div>
                   <div style={cardStyle}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: "#6366f1" }}>✍️ 오프닝 훅</div><div style={{ fontSize: 13, lineHeight: 1.7, color: "#374151" }}>{cfCarouselResult.data.hook}</div></div>
-                  <div style={cardStyle}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}><span style={{ fontWeight: 700, fontSize: 13, color: "#6366f1" }}>📄 본문 HTML</span><CopyBtn text={cfCarouselResult.data.body} /></div><textarea value={cfCarouselResult.data.body} readOnly rows={8} style={{ ...inputStyle, background: "#f8fafc", resize: "vertical", fontSize: 12, fontFamily: "monospace" }} /></div>
+                  <div style={cardStyle}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}><span style={{ fontWeight: 700, fontSize: 13, color: "#6366f1" }}>📄 본문 텍스트 (발행 시 이미지 자동 삽입)</span><CopyBtn text={cfCarouselResult.data.body} /></div><textarea value={cfCarouselResult.data.body} readOnly rows={8} style={{ ...inputStyle, background: "#f8fafc", resize: "vertical", fontSize: 12, lineHeight: 1.7 }} /></div>
                   <div style={{ display: "flex", gap: 12 }}>
                     <div style={{ ...cardStyle, flex: 1 }}><div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6, color: "#6366f1" }}>🖼️ 이미지 추천</div>{(cfCarouselResult.data.imageRecommends || []).map((v, i) => <div key={i} style={{ fontSize: 12, padding: "3px 0" }}>• {v}</div>)}</div>
                     <div style={{ ...cardStyle, flex: 1 }}><div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6, color: "#6366f1" }}>🔗 내부링크 주제</div>{(cfCarouselResult.data.internalLinks || []).map((v, i) => <div key={i} style={{ fontSize: 12, padding: "3px 0" }}>• {v}</div>)}</div>
