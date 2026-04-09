@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { supabase, DEMO_MODE } from "./supabase.js";
 
 // --- Icons (inline SVG components) ---
