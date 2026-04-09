@@ -2694,15 +2694,18 @@ ${platformList}
     const handlePublish = async (platformKey) => {
       if (!selectedContent) return;
       const isSchedule = !!pubSchedule;
+      const now = new Date().toISOString().replace("T", " ").slice(0, 16);
+
       if (isSchedule) {
-        const { error } = await supabase.from("contents")
-          .update({ status: "scheduled", scheduled_at: pubSchedule })
-          .eq("id", selectedContent.id);
-        if (error) { setPubResult(prev => ({ ...prev, [platformKey]: `❌ ${error.message}` })); return; }
+        // 예약 등록 — 로컬 상태 먼저, Supabase는 가능한 경우만
         setContentsList(prev => prev.map(c => c.id === selectedContent.id ? { ...c, status: "scheduled", scheduledAt: pubSchedule } : c));
+        if (!DEMO_MODE) {
+          await supabase.from("contents").update({ status: "scheduled", scheduled_at: pubSchedule }).eq("id", selectedContent.id);
+        }
         setPubResult(prev => ({ ...prev, [platformKey]: `⏰ 예약 완료: ${pubSchedule}` }));
         return;
       }
+
       setPubLoading(prev => ({ ...prev, [platformKey]: true }));
       try {
         let msg = "";
@@ -2725,12 +2728,15 @@ ${platformList}
           const postId = await publishYouTubePost(selectedContent.platformDrafts?.youtube || selectedContent.masterText);
           msg = `✅ YouTube 커뮤니티 발행완료 ID:${postId}`;
         }
-        const now = new Date().toISOString().replace("T", " ").slice(0, 16);
-        const upd = { status: "published" };
-        if (!selectedContent.firstPublishedAt) upd.first_published_at = now;
-        else upd.updated_at = now;
-        await supabase.from("contents").update(upd).eq("id", selectedContent.id);
+        // 로컬 상태 업데이트
         setContentsList(prev => prev.map(c => c.id === selectedContent.id ? { ...c, status: "published", firstPublishedAt: c.firstPublishedAt || now } : c));
+        // Supabase 업데이트 (가능한 경우만)
+        if (!DEMO_MODE) {
+          const upd = { status: "published" };
+          if (!selectedContent.firstPublishedAt) upd.first_published_at = now;
+          else upd.updated_at = now;
+          await supabase.from("contents").update(upd).eq("id", selectedContent.id);
+        }
         setPubResult(prev => ({ ...prev, [platformKey]: msg }));
       } catch (e) {
         setPubResult(prev => ({ ...prev, [platformKey]: `❌ ${e.message}` }));
