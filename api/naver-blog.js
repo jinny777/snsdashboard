@@ -21,7 +21,7 @@ export default async function handler(req, res) {
     });
     if (publishedAtTime) params.append("publishedAtTime", publishedAtTime);
 
-    const naverResp = await fetch("https://openapi.naver.com/v1/blog/post.json", {
+    const naverResp = await fetch("https://openapi.naver.com/blog/post.json", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
