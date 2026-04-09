@@ -2771,8 +2771,17 @@ ${platformList}
             <div style={{ maxHeight: "calc(100vh - 280px)", overflowY: "auto" }}>
               {filtered.length === 0 ? (
                 <div style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
-                  콘텐츠가 없습니다<br />
-                  <span style={{ fontSize: 11 }}>콘텐츠 생성 탭에서 생성 후 저장하세요</span>
+                  <div style={{ fontSize: 28, marginBottom: 10 }}>📭</div>
+                  <div style={{ fontWeight: 600, marginBottom: 6, color: "#64748b" }}>저장된 콘텐츠가 없습니다</div>
+                  <div style={{ fontSize: 11, marginBottom: 16, lineHeight: 1.6 }}>
+                    콘텐츠 생성 탭에서 SNS 초안을 생성하고<br />
+                    <b>"📤 저장 후 발행 관리로"</b> 버튼을 누르세요
+                  </div>
+                  <button
+                    onClick={() => setActiveMenu("contentflow")}
+                    style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                    ✨ 콘텐츠 생성하러 가기
+                  </button>
                 </div>
               ) : filtered.map(c => (
                 <div
