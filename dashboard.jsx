@@ -3434,7 +3434,7 @@ ${platformList}
     setActiveMenu("contents");
   };
 
-  // 콘텐츠 생성 결과를 Supabase에 바로 저장 후 발행 관리 페이지로 이동
+  // 콘텐츠 생성 결과를 저장 후 발행 관리 페이지로 이동
   const handleCfSaveAndGoPublish = async (title, platforms, drafts) => {
     const newContent = {
       title,
@@ -3447,18 +3447,27 @@ ${platformList}
       registrant: "",
       registeredAt: new Date().toISOString().slice(0, 10),
     };
-    try {
-      const { data, error } = await supabase.from("contents").insert(contentToDb(newContent)).select().single();
-      if (error) throw new Error(error.message);
-      const saved = dbToContent(data);
-      setContentsList(prev => [saved, ...prev]);
-      setPubSelId(saved.id);
-      setPubResult({});
-      setPubSchedule("");
-      setActiveMenu("publish");
-    } catch (e) {
-      alert(`저장 실패: ${e.message}`);
+
+    let saved;
+    if (DEMO_MODE) {
+      // 데모 모드: 로컬 상태에만 저장 (임시 ID 부여)
+      saved = { ...newContent, id: `demo_${Date.now()}`, firstPublishedAt: null, updatedAt: null };
+    } else {
+      try {
+        const { data, error } = await supabase.from("contents").insert(contentToDb(newContent)).select().single();
+        if (error) throw new Error(error.message);
+        saved = dbToContent(data);
+      } catch (e) {
+        alert(`저장 실패: ${e.message}`);
+        return;
+      }
     }
+
+    setContentsList(prev => [saved, ...prev]);
+    setPubSelId(saved.id);
+    setPubResult({});
+    setPubSchedule("");
+    setActiveMenu("publish");
   };
 
   // 브랜드 분석
