@@ -41,8 +41,8 @@ const PLATFORMS = {
 
 // --- Simulated Data ---
 const MOCK_KPI = [
-  { label: "총 팔로워", value: "128,430", change: "+2.4%", up: true },
-  { label: "이번 주 도달", value: "45,200", change: "+12.1%", up: true },
+  { label: "총 팔로워", value: "-", change: "-", up: true },
+  { label: "이번 주 도달", value: "-", change: "-", up: true },
   { label: "인게이지먼트율", value: "4.7%", change: "-0.3%", up: false },
   { label: "예약 대기", value: "7건", change: "", up: true },
 ];
@@ -75,78 +75,13 @@ const MOCK_POSTS_RANKING = [
   { title: "트렌드 밈 트윗", platform: "twitter", reach: 15200, engage: 1100, rate: "7.2%", format: "텍스트" },
 ];
 
-// --- 콘텐츠 관리 목업 데이터 ---
-const MOCK_CONTENTS_DATA = [
-  {
-    id: 1,
-    registrant: "양승현",
-    registeredAt: "2026-03-20",
-    title: "Antigravity 라이브러리 소개",
-    masterText: "Antigravity(안티그래비티)는 파이썬 기반의 웹 자동화 라이브러리입니다. 기존의 Selenium이나 Playwright와 달리, 사람처럼 자연스러운 브라우저 조작이 가능하며 봇 탐지를 우회할 수 있습니다.",
-    status: "scheduled",
-    scheduledAt: "2026-03-22 14:00",
-    platforms: ["twitter", "youtube", "facebook"],
-    platformDrafts: {
-      twitter: "🚀 웹 자동화의 새 패러다임, Antigravity 출시!\n\n봇 탐지 없이 자연스럽게 브라우저를 조작하는 Python 라이브러리. 마케터, 데이터 분석가 모두 코딩 최소화로 반복 업무를 자동화할 수 있습니다.\n\n#Antigravity #Python #자동화",
-      youtube: "Antigravity 라이브러리 완전 정복 | 봇 탐지 우회 자동화 도구\n\n✅ 이 영상에서 배울 내용:\n- Antigravity가 기존 도구와 다른 점\n- 설치 및 첫 번째 스크립트 작성\n- SNS 자동화 실전 예제\n\n#자동화 #Python",
-      facebook: "🎉 Antigravity 라이브러리를 소개합니다!\n\nPython 기반으로 웹 자동화를 더 쉽고 안전하게. 코딩 경험이 없어도 반복 업무를 자동화할 수 있어요.",
-      instagram: "",
-      threads: "",
-    },
-  },
-  {
-    id: 2,
-    registrant: "양승현",
-    registeredAt: "2026-03-21",
-    title: "봇 탐지 우회 기능 소개",
-    masterText: "기존 Selenium이나 Playwright와 달리, Antigravity는 사람처럼 자연스러운 브라우저 조작이 가능하며 봇 감지 시스템을 자연스럽게 통과합니다.",
-    status: "draft",
-    scheduledAt: null,
-    platforms: ["instagram", "threads"],
-    platformDrafts: {
-      twitter: "",
-      youtube: "",
-      facebook: "",
-      instagram: "🤖 봇도 사람처럼?\n\n기존 자동화 도구들과 달리 Antigravity는 실제 사람의 행동 패턴을 완벽하게 모방합니다.\n\n#자동화 #Python #봇탐지",
-      threads: "봇 탐지 우회가 가능한 웹 자동화 라이브러리가 있다면 믿으시겠나요?\n\nAntigravity는 실제 브라우저 환경에서 인간의 행동을 재현합니다. 자연스러운 마우스 이동, 키보드 딜레이까지 모두 구현했습니다.",
-    },
-  },
-  {
-    id: 3,
-    registrant: "양승현",
-    registeredAt: "2026-03-19",
-    title: "주간 업데이트 공지",
-    masterText: "이번 주 Antigravity v1.2 업데이트가 출시되었습니다. 성능 개선, 버그 수정, Instagram API 지원이 새롭게 추가되었습니다.",
-    status: "published",
-    scheduledAt: "2026-03-20 10:00",
-    platforms: ["twitter", "facebook", "instagram", "threads", "youtube"],
-    platformDrafts: {},
-  },
-  {
-    id: 4,
-    registrant: "양승현",
-    registeredAt: "2026-03-18",
-    title: "사용 사례 - 마케팅 자동화편",
-    masterText: "SNS 콘텐츠 자동 발행, 경쟁사 모니터링, 리뷰/댓글 자동 수집 등 마케팅 실무에서 Antigravity를 활용하는 다양한 사례를 소개합니다.",
-    status: "review",
-    scheduledAt: "2026-03-28 18:00",
-    platforms: ["instagram", "youtube", "facebook"],
-    platformDrafts: {
-      twitter: "",
-      youtube: "마케터를 위한 Antigravity 완전 활용법 | SNS 자동화 실전편\n\n실제 마케팅 현장에서 Antigravity를 활용하는 5가지 방법을 공개합니다.",
-      facebook: "마케팅 자동화, 이제 Antigravity로 해결하세요!\n\n경쟁사 모니터링부터 SNS 멀티채널 발행까지, 반복 업무를 자동화해서 크리에이티브에 집중하세요.",
-      instagram: "마케터의 필수 도구 🛠️\n\nAntigravity 하나로 SNS 자동화, 데이터 수집, 경쟁사 모니터링까지!\n\n#마케팅자동화 #SNS마케팅 #Python",
-      threads: "",
-    },
-  },
-];
-
-const MOCK_MEMBERS = [
-  { id: 1, name: "양승현", email: "yang@antigravity.io", joinedAt: "2026-03-01", approvalStatus: "approved", role: "admin" },
-  { id: 2, name: "김지원", email: "jiwon@antigravity.io", joinedAt: "2026-03-15", approvalStatus: "approved", role: "operator" },
-  { id: 3, name: "박민준", email: "minjun@example.com", joinedAt: "2026-03-20", approvalStatus: "pending", role: "operator" },
-  { id: 4, name: "이서연", email: "seoyeon@example.com", joinedAt: "2026-03-21", approvalStatus: "pending", role: "operator" },
-];
+// DEMO_MODE용 localStorage 헬퍼
+const loadLocalContents = () => {
+  try { return JSON.parse(localStorage.getItem("demo_contents") || "[]"); } catch { return []; }
+};
+const saveLocalContents = (list) => {
+  try { localStorage.setItem("demo_contents", JSON.stringify(list)); } catch {}
+};
 
 const MOCK_COMPETITORS = [
   { name: "경쟁사 A", followers: "245K", postFreq: "일 2회", topFormat: "릴스", engageRate: "5.1%" },
@@ -334,7 +269,7 @@ export default function SNSDashboard() {
   // 콘텐츠 목록 불러오기
   useEffect(() => {
     if (DEMO_MODE) {
-      setContentsList(MOCK_CONTENTS_DATA);
+      setContentsList(loadLocalContents());
       return;
     }
     supabase.from("contents").select("*").order("id", { ascending: false })
@@ -343,6 +278,11 @@ export default function SNSDashboard() {
         setContentsList((data || []).map(dbToContent));
       });
   }, []);
+
+  // DEMO_MODE: contentsList 변경 시 localStorage에 자동 저장
+  useEffect(() => {
+    if (DEMO_MODE) saveLocalContents(contentsList);
+  }, [contentsList]);
 
   // AI 도구 관리 (Supabase settings 영속)
   const AI_TOOLS_DEFAULT = [
