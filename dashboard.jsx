@@ -3251,6 +3251,12 @@ ${platformList}
       reader.onload = () => resolve(reader.result);
       reader.readAsDataURL(blob);
     });
+    // API 호출에 타임아웃 적용 (느린 API가 폴백을 지연시키지 않도록)
+    const fetchWithTimeout = (url, opts, ms = 12000) => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), ms);
+      return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+    };
     try {
       const geminiKey = serviceCredentials.gemini?.apiKey?.trim();
       let dataUrl = null;
@@ -3262,7 +3268,7 @@ ${platformList}
 
         // 1순위: Imagen 3 (Google의 전용 이미지 생성 모델)
         try {
-          const imgResp = await fetch(
+          const imgResp = await fetchWithTimeout(
             `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${geminiKey}`,
             {
               method: "POST",
@@ -3271,7 +3277,8 @@ ${platformList}
                 instances: [{ prompt: imagePrompt }],
                 parameters: { sampleCount: 1, aspectRatio: "1:1" },
               }),
-            }
+            },
+            12000
           );
           const imgData = await imgResp.json();
           const b64 = imgData.predictions?.[0]?.bytesBase64Encoded;
@@ -3281,7 +3288,7 @@ ${platformList}
         // 2순위: Gemini 2.0 Flash Experimental
         if (!dataUrl) {
           try {
-            const gemResp = await fetch(
+            const gemResp = await fetchWithTimeout(
               `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${geminiKey}`,
               {
                 method: "POST",
@@ -3290,7 +3297,8 @@ ${platformList}
                   contents: [{ parts: [{ text: imagePrompt }] }],
                   generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
                 }),
-              }
+              },
+              12000
             );
             const gemData = await gemResp.json();
             const part = gemData.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
@@ -3302,22 +3310,18 @@ ${platformList}
       }
 
       if (!dataUrl) {
-        // 폴백: Pollinations.ai Flux 모델
+        // 폴백: Pollinations.ai Flux 모델 (enhance 제거로 속도 향상)
         const fullPrompt = [
           prompt,
           "professional photography",
-          "DSLR photo",
           "natural light",
-          "shallow depth of field",
           "ultra realistic",
-          "8k resolution",
           "no text",
           "no watermark",
-          "no logo",
         ].join(", ");
         const seed = Math.floor(Math.random() * 1000000);
-        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&model=flux&nologo=true&enhance=true&seed=${seed}`;
-        const pollResp = await fetch(url);
+        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&model=flux&nologo=true&seed=${seed}`;
+        const pollResp = await fetchWithTimeout(url, {}, 30000);
         if (!pollResp.ok) throw new Error(`이미지 생성 오류 ${pollResp.status}`);
         dataUrl = await toDataUrl(await pollResp.blob());
       }
@@ -4178,9 +4182,11 @@ ${platformList}
                       <div style={{ display: "flex", gap: 8 }}>
                         <button
                           onClick={async () => {
-                            for (const s of allSlides) {
-                              if (!cfCarouselImages[s.slideKey]) await cfGenerateImage(s.slideKey, s.prompt, s.isCover);
-                            }
+                            await Promise.all(
+                              allSlides
+                                .filter(s => !cfCarouselImages[s.slideKey])
+                                .map(s => cfGenerateImage(s.slideKey, s.prompt, s.isCover))
+                            );
                           }}
                           disabled={Object.values(cfCarouselImgLoading).some(Boolean)}
                           style={{ padding: "8px 14px", borderRadius: 8, border: "1.5px solid #6366f1", background: "#fff", color: "#6366f1", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
