@@ -3330,25 +3330,27 @@ ${platformList}
       }
 
       if (!dataUrl) {
-        // 폴백: Pollinations.ai Flux 모델 (429 시 최대 3회 재시도)
-        const fullPrompt = [
-          prompt,
-          "professional photography",
-          "natural light",
-          "ultra realistic",
-          "no text",
-          "no watermark",
-        ].join(", ");
+        // 폴백: Pollinations.ai — turbo(빠름) → flux 순으로, 모든 오류에서 재시도
+        const shortPrompt = [prompt, "professional photo", "no text", "no watermark"].join(", ");
         const seed = Math.floor(Math.random() * 1000000);
-        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&model=flux&nologo=true&seed=${seed}`;
-        let pollResp;
-        for (let attempt = 0; attempt < 3; attempt++) {
-          if (attempt > 0) await new Promise(r => setTimeout(r, 3000 * attempt)); // 3초, 6초 대기
-          pollResp = await fetchWithTimeout(url, {}, 35000);
-          if (pollResp.status !== 429) break;
+        const MODELS = ["turbo", "flux", "turbo"]; // 3회: turbo → flux → turbo
+        let lastErr = null;
+        for (let attempt = 0; attempt < MODELS.length; attempt++) {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 5000)); // 5초 대기 후 재시도
+          try {
+            const model = MODELS[attempt];
+            const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(shortPrompt)}?width=1024&height=1024&model=${model}&nologo=true&seed=${seed + attempt}`;
+            const pollResp = await fetchWithTimeout(url, {}, 55000);
+            if (pollResp.ok) {
+              dataUrl = await toDataUrl(await pollResp.blob());
+              break;
+            }
+            lastErr = new Error(`이미지 서버 오류 ${pollResp.status}`);
+          } catch (err) {
+            lastErr = err; // 타임아웃 포함 모든 에러 → 재시도
+          }
         }
-        if (!pollResp.ok) throw new Error(`이미지 생성 오류 ${pollResp.status}`);
-        dataUrl = await toDataUrl(await pollResp.blob());
+        if (!dataUrl) throw lastErr || new Error("이미지 생성 실패 (3회 시도)");
       }
 
       setCfCarouselImages(prev => ({ ...prev, [slideKey]: dataUrl }));
