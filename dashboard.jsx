@@ -3412,8 +3412,8 @@ ${platformList}
 
       if (geminiKey) {
         const imagePrompt = isCover
-          ? `A stunning magazine cover photo about: ${prompt}. Bright vivid colors, cinematic composition, professional photography. No text, no letters, no words, no writing anywhere in the image.`
-          : `A realistic photo representing: ${prompt}. Natural lighting, professional DSLR photography, shallow depth of field. No text, no letters, no words, no writing anywhere in the image.`;
+          ? `Korean Instagram magazine cover photo about: ${prompt}. Korean aesthetic style, K-beauty, clean minimal composition, soft pastel tones, Seoul urban lifestyle, Korean young woman or product styling, high-end fashion magazine quality, cinematic lighting. No text, no letters, no words anywhere in the image.`
+          : `Korean lifestyle photo about: ${prompt}. Korean aesthetic, K-style interior or street, Seoul city or cafe background, natural soft lighting, Korean model or product, Instagram-worthy composition, clean and minimal. No text, no letters, no words anywhere in the image.`;
 
         // 1순위: Imagen 3 (Google의 전용 이미지 생성 모델)
         try {
@@ -3460,7 +3460,7 @@ ${platformList}
 
       if (!dataUrl) {
         // 폴백: Pollinations.ai 2회 시도
-        const shortPrompt = [prompt, "professional photo", "no text"].join(", ");
+        const shortPrompt = [prompt, "Korean aesthetic style", "K-beauty", "Seoul lifestyle", "clean minimal", "soft lighting", "Instagram photo", "no text", "no watermark"].join(", ");
         const seed = Math.floor(Math.random() * 1000000);
         for (let attempt = 0; attempt < 2; attempt++) {
           if (attempt > 0) await new Promise(r => setTimeout(r, 10000));
@@ -4306,13 +4306,14 @@ ${platformList}
                     lnk.href = dataUrl; lnk.click();
                   };
 
+                  const KR_STYLE = 'Korean aesthetic, K-beauty style, Seoul lifestyle, soft natural lighting, clean minimal composition, Instagram-worthy';
                   const allSlides = [
                     { isCover: true, data: igData?.cover, gi: 0, label: 'COVER', slideKey: 'cover',
-                      prompt: [cfCarouselKeyword, igData?.cover?.title || '', 'magazine cover style', 'premium lifestyle photography', 'beautiful scenery', 'cinematic'].filter(Boolean).join(', ') },
+                      prompt: [cfCarouselKeyword, igData?.cover?.title || '', 'Korean magazine cover style', 'K-fashion editorial', KR_STYLE, 'cinematic'].filter(Boolean).join(', ') },
                     ...(igData?.slides || []).map((s, i) => ({ isCover: false, data: s, gi: i + 1, label: `0${s.no}`, slideKey: `slide_${s.no}`,
                       prompt: s.imageDesc
-                        ? `${s.imageDesc}, ${cfCarouselKeyword}`
-                        : [cfCarouselKeyword, s.title, s.body?.slice(0, 40) || ''].filter(Boolean).join(', ')
+                        ? `${s.imageDesc}, ${cfCarouselKeyword}, ${KR_STYLE}`
+                        : [cfCarouselKeyword, s.title, s.body?.slice(0, 40) || '', KR_STYLE].filter(Boolean).join(', ')
                     }))
                   ];
 
