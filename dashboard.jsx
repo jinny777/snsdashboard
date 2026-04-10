@@ -221,7 +221,7 @@ export default function SNSDashboard() {
   const [benchmarkUrl, setBenchmarkUrl] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] = useState(["instagram", "facebook", "twitter", "threads", "youtube"]);
   const [commentFilter, setCommentFilter] = useState("all");
-  const [calendarMonth] = useState("2026년 3월");
+  const [calSelContentId, setCalSelContentId] = useState(null);
   const [analysisView, setAnalysisView] = useState("overview");
   const [showBenchmarkResult, setShowBenchmarkResult] = useState(false);
   const [publishChecked, setPublishChecked] = useState({});
@@ -441,6 +441,7 @@ export default function SNSDashboard() {
     { id: "contents", label: "콘텐츠 관리", icon: Icons.Edit },
     { id: "contentflow", label: "콘텐츠 생성", icon: Icons.Zap },
     { id: "publish", label: "발행 관리", icon: Icons.Send },
+    { id: "calendar", label: "콘텐츠 캘린더", icon: Icons.Calendar },
     { id: "community", label: "커뮤니티", icon: Icons.MessageCircle },
     { id: "research", label: "리서치", icon: Icons.Search },
   ];
@@ -1248,86 +1249,214 @@ ${platformList}
   //  PAGE: CALENDAR
   // ========================
   const renderCalendar = () => {
-    const daysInMonth = 31;
-    const firstDay = 6; // March 2026 starts on Sunday (0-indexed: 0=Sun)
+    const year = contentsCalYear;
+    const month = contentsCalMonth; // 0-indexed
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+    const today = new Date();
+    const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+    const todayDate = today.getDate();
+
     const days = [];
     for (let i = 0; i < firstDay; i++) days.push(null);
     for (let i = 1; i <= daysInMonth; i++) days.push(i);
+
+    const goMonth = (delta) => {
+      let m = month + delta;
+      let y = year;
+      if (m < 0) { m = 11; y--; }
+      if (m > 11) { m = 0; y++; }
+      setContentsCalYear(y);
+      setContentsCalMonth(m);
+      setCalSelContentId(null);
+    };
+
+    // contentsList에서 이번 달 이벤트 추출
+    const monthStr = `${year}-${String(month + 1).padStart(2, "0")}`;
+    const calEvents = {}; // { day: [content, ...] }
+    contentsList.forEach(c => {
+      const dateStr = c.scheduledAt?.slice(0, 10) || c.firstPublishedAt?.slice(0, 10);
+      if (!dateStr || !dateStr.startsWith(monthStr)) return;
+      const day = parseInt(dateStr.slice(8, 10));
+      if (!calEvents[day]) calEvents[day] = [];
+      calEvents[day].push(c);
+    });
+
+    const STATUS_COLOR = { draft: "#94a3b8", review: "#f59e0b", scheduled: "#6366f1", published: "#10b981" };
+    const STATUS_LABEL = { draft: "초안", review: "검토중", scheduled: "예약", published: "발행완료" };
+    const selContent = calSelContentId ? contentsList.find(c => c.id === calSelContentId) : null;
 
     return (
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
           <div style={styles.pageTitle}>콘텐츠 캘린더</div>
-          <button style={styles.btn(true)}><Icons.Plus /> 일정 추가</button>
+          <button style={styles.btn(true)} onClick={() => setActiveMenu("contentflow")}><Icons.Plus /> 콘텐츠 생성</button>
         </div>
-        <div style={styles.pageSubtitle}>{calendarMonth} · 콘텐츠 게시 일정을 관리하세요</div>
+        <div style={styles.pageSubtitle}>{year}년 {month + 1}월 · 예약/발행된 콘텐츠 일정</div>
 
         <div style={styles.card}>
-          {/* Calendar header */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0, marginBottom: 8 }}>
+          {/* 월 이동 헤더 */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <button onClick={() => goMonth(-1)} style={{ padding: "4px 12px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#fff", cursor: "pointer", fontSize: 16 }}>‹</button>
+            <div style={{ fontWeight: 700, fontSize: 16, color: "#1a1a2e" }}>{year}년 {month + 1}월</div>
+            <button onClick={() => goMonth(1)} style={{ padding: "4px 12px", borderRadius: 6, border: "1px solid #e2e8f0", background: "#fff", cursor: "pointer", fontSize: 16 }}>›</button>
+          </div>
+
+          {/* 요일 헤더 */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0, marginBottom: 4 }}>
             {["일", "월", "화", "수", "목", "금", "토"].map(d => (
-              <div key={d} style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: "#94a3b8", padding: "8px 0" }}>{d}</div>
+              <div key={d} style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: "#94a3b8", padding: "6px 0" }}>{d}</div>
             ))}
           </div>
-          {/* Calendar grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+
+          {/* 날짜 그리드 */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
             {days.map((day, i) => {
-              const events = day ? MOCK_CALENDAR.filter(e => e.day === day) : [];
-              const isToday = day === 9;
+              const events = day ? (calEvents[day] || []) : [];
+              const isToday = isCurrentMonth && day === todayDate;
               return (
                 <div key={i} style={{
-                  minHeight: 90,
-                  padding: "6px 8px",
+                  minHeight: 88,
+                  padding: "5px 6px",
                   borderRadius: 8,
                   background: isToday ? "#ede9fe" : day ? "#fafbfd" : "transparent",
                   border: isToday ? "2px solid #8b5cf6" : day ? "1px solid #f1f5f9" : "none",
                 }}>
                   {day && (
                     <>
-                      <div style={{ fontSize: 12, fontWeight: isToday ? 700 : 400, color: isToday ? "#6366f1" : "#64748b", marginBottom: 4 }}>{day}</div>
-                      {events.map((ev, j) => (
-                        <div key={j} style={{
-                          fontSize: 10,
-                          padding: "3px 6px",
-                          borderRadius: 4,
-                          marginBottom: 2,
-                          background: PLATFORMS[ev.platform].bg,
-                          borderLeft: `3px solid ${PLATFORMS[ev.platform].color}`,
-                          color: "#374151",
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          cursor: "pointer",
-                        }}>
-                          {ev.title}
-                        </div>
-                      ))}
+                      <div style={{ fontSize: 11, fontWeight: isToday ? 700 : 400, color: isToday ? "#6366f1" : "#64748b", marginBottom: 3 }}>{day}</div>
+                      {events.slice(0, 3).map((c, j) => {
+                        const firstPlatform = c.platforms?.[0];
+                        const platInfo = PLATFORMS[firstPlatform];
+                        const statusColor = STATUS_COLOR[c.status] || "#94a3b8";
+                        return (
+                          <div
+                            key={j}
+                            onClick={() => setCalSelContentId(c.id === calSelContentId ? null : c.id)}
+                            style={{
+                              fontSize: 10,
+                              padding: "2px 5px",
+                              borderRadius: 4,
+                              marginBottom: 2,
+                              background: calSelContentId === c.id ? "#ddd6fe" : (platInfo?.bg || "#f1f5f9"),
+                              borderLeft: `3px solid ${statusColor}`,
+                              color: "#374151",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              cursor: "pointer",
+                              fontWeight: calSelContentId === c.id ? 700 : 400,
+                            }}
+                            title={c.title}
+                          >
+                            {platInfo?.icon || "📄"} {c.title}
+                          </div>
+                        );
+                      })}
+                      {events.length > 3 && (
+                        <div style={{ fontSize: 9, color: "#6366f1", fontWeight: 600, paddingLeft: 2 }}>+{events.length - 3}개 더</div>
+                      )}
                     </>
                   )}
                 </div>
               );
             })}
           </div>
-        </div>
 
-        {/* Season Events */}
-        <div style={{ ...styles.card, marginTop: 16 }}>
-          <div style={styles.cardTitle}>🎯 시즌 이벤트 알림</div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {[
-              { date: "3/14", event: "화이트데이", color: "#ec4899" },
-              { date: "4/5", event: "식목일", color: "#22c55e" },
-              { date: "5/5", event: "어린이날", color: "#f59e0b" },
-              { date: "5/8", event: "어버이날", color: "#ef4444" },
-            ].map((s, i) => (
-              <div key={i} style={{ padding: "10px 16px", borderRadius: 10, background: s.color + "10", border: `1px solid ${s.color}30`, display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: s.color }}>{s.date}</span>
-                <span style={{ fontSize: 13 }}>{s.event}</span>
-                <span style={{ fontSize: 11, color: "#94a3b8" }}>콘텐츠 준비 권장</span>
+          {/* 범례 */}
+          <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+            {Object.entries(STATUS_LABEL).map(([k, v]) => (
+              <div key={k} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#64748b" }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: STATUS_COLOR[k] }} />
+                {v}
               </div>
             ))}
           </div>
         </div>
+
+        {/* 선택된 콘텐츠 상세 */}
+        {selContent && (
+          <div style={{ ...styles.card, marginTop: 16, borderLeft: `4px solid ${STATUS_COLOR[selContent.status]}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#1a1a2e", marginBottom: 4 }}>{selContent.title || "(제목 없음)"}</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={styles.badge(STATUS_COLOR[selContent.status])}>{STATUS_LABEL[selContent.status]}</span>
+                  {selContent.scheduledAt && <span style={{ fontSize: 11, color: "#6366f1" }}>⏰ {selContent.scheduledAt}</span>}
+                  {selContent.firstPublishedAt && <span style={{ fontSize: 11, color: "#10b981" }}>✅ {selContent.firstPublishedAt}</span>}
+                  {selContent.registeredAt && <span style={{ fontSize: 11, color: "#94a3b8" }}>등록 {selContent.registeredAt}</span>}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => { setPubSelId(selContent.id); setPubResult({}); setPubSchedule(""); setActiveMenu("publish"); }}
+                  style={{ padding: "6px 14px", borderRadius: 7, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                  📤 발행 관리
+                </button>
+                <button onClick={() => setCalSelContentId(null)}
+                  style={{ padding: "6px 10px", borderRadius: 7, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", fontSize: 12, cursor: "pointer" }}>
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* 플랫폼 */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+              {selContent.platforms?.map(p => (
+                <span key={p} style={{ fontSize: 12, padding: "3px 10px", borderRadius: 6, background: PLATFORMS[p]?.bg || "#f1f5f9", color: "#475569", fontWeight: 600 }}>
+                  {PLATFORMS[p]?.icon} {PLATFORMS[p]?.name}
+                </span>
+              ))}
+            </div>
+
+            {/* 초안 내용 */}
+            {selContent.platforms?.map(p => {
+              const draft = selContent.platformDrafts?.[p];
+              if (!draft) return null;
+              return (
+                <div key={p} style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#6366f1", marginBottom: 4 }}>{PLATFORMS[p]?.icon} {PLATFORMS[p]?.name}</div>
+                  <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, maxHeight: 80, overflowY: "auto" }}>
+                    {draft.replace(/<[^>]+>/g, "").slice(0, 200)}{draft.length > 200 ? "..." : ""}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* 발행 내역 */}
+            {selContent.publishResults && Object.keys(selContent.publishResults).length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6 }}>📋 발행 내역</div>
+                {Object.entries(selContent.publishResults).map(([p, r]) => (
+                  <div key={p} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, marginBottom: 4, background: "#d1fae5", color: "#065f46" }}>
+                    {PLATFORMS[p]?.icon} {PLATFORMS[p]?.name}: {r.msg} {r.at && <span style={{ opacity: 0.6 }}>({r.at})</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 이번 달 요약 */}
+        {contentsList.length > 0 && (
+          <div style={{ ...styles.card, marginTop: 16 }}>
+            <div style={styles.cardTitle}>📊 {month + 1}월 발행 현황</div>
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+              {[
+                { label: "예약됨", status: "scheduled", color: "#6366f1" },
+                { label: "발행완료", status: "published", color: "#10b981" },
+                { label: "초안", status: "draft", color: "#94a3b8" },
+              ].map(({ label, status, color }) => {
+                const count = Object.values(calEvents).flat().filter(c => c.status === status).length;
+                return (
+                  <div key={status} style={{ padding: "12px 20px", borderRadius: 10, background: color + "10", border: `1px solid ${color}30`, textAlign: "center" }}>
+                    <div style={{ fontSize: 22, fontWeight: 700, color }}>{count}</div>
+                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{label}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -5376,6 +5505,7 @@ ${platformList}
       case "contents": return renderContents();
       case "contentflow": return renderContentFlow();
       case "publish": return renderPublish();
+      case "calendar": return renderCalendar();
       case "community": return renderCommunity();
       case "research": return renderResearch();
       case "sns-integration": return renderSnsIntegration();
