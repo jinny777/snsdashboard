@@ -3330,27 +3330,36 @@ ${platformList}
       }
 
       if (!dataUrl) {
-        // 폴백: Pollinations.ai — turbo(빠름) → flux 순으로, 모든 오류에서 재시도
-        const shortPrompt = [prompt, "professional photo", "no text", "no watermark"].join(", ");
+        // 폴백: Pollinations.ai 2회 시도
+        const shortPrompt = [prompt, "professional photo", "no text"].join(", ");
         const seed = Math.floor(Math.random() * 1000000);
-        const MODELS = ["turbo", "flux", "turbo"]; // 3회: turbo → flux → turbo
-        let lastErr = null;
-        for (let attempt = 0; attempt < MODELS.length; attempt++) {
-          if (attempt > 0) await new Promise(r => setTimeout(r, 5000)); // 5초 대기 후 재시도
+        for (let attempt = 0; attempt < 2; attempt++) {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 10000));
           try {
-            const model = MODELS[attempt];
-            const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(shortPrompt)}?width=1024&height=1024&model=${model}&nologo=true&seed=${seed + attempt}`;
+            const model = attempt === 0 ? "turbo" : "flux";
+            const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(shortPrompt)}?width=1024&height=1024&model=${model}&nologo=true&private=true&seed=${seed + attempt}`;
             const pollResp = await fetchWithTimeout(url, {}, 55000);
-            if (pollResp.ok) {
-              dataUrl = await toDataUrl(await pollResp.blob());
-              break;
-            }
-            lastErr = new Error(`이미지 서버 오류 ${pollResp.status}`);
-          } catch (err) {
-            lastErr = err; // 타임아웃 포함 모든 에러 → 재시도
-          }
+            if (pollResp.ok) { dataUrl = await toDataUrl(await pollResp.blob()); break; }
+          } catch (_) { /* 재시도 */ }
         }
-        if (!dataUrl) throw lastErr || new Error("이미지 생성 실패 (3회 시도)");
+      }
+
+      // 최종 폴백: 캔버스 그라디언트 이미지 (오류 없이 진행)
+      if (!dataUrl) {
+        const GRAD_PAIRS = [['#667eea','#764ba2'],['#f093fb','#f5576c'],['#4facfe','#00f2fe'],['#43e97b','#38f9d7'],['#fa709a','#fee140'],['#a18cd1','#fbc2eb']];
+        const gi = Object.keys(cfCarouselImages || {}).length % GRAD_PAIRS.length;
+        const [c1, c2] = GRAD_PAIRS[gi];
+        const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 1024;
+        const ctx = cv.getContext('2d');
+        const g = ctx.createLinearGradient(0, 0, 1024, 1024);
+        g.addColorStop(0, c1); g.addColorStop(1, c2);
+        ctx.fillStyle = g; ctx.fillRect(0, 0, 1024, 1024);
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        for (let i = 0; i < 6; i++) {
+          ctx.beginPath(); ctx.arc(Math.random()*1024, Math.random()*1024, 80+Math.random()*120, 0, Math.PI*2);
+          ctx.fill();
+        }
+        dataUrl = cv.toDataURL('image/png');
       }
 
       setCfCarouselImages(prev => ({ ...prev, [slideKey]: dataUrl }));
