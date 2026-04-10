@@ -3416,8 +3416,8 @@ ${platformList}
 
       if (geminiKey) {
         const imagePrompt = isCover
-          ? `${prompt}, Korean Instagram magazine cover photo, K-beauty editorial style, soft pastel tones, clean minimal composition, high-end fashion magazine quality, cinematic lighting, Seoul lifestyle. No text, no letters, no words anywhere in the image.`
-          : `${prompt}, Korean lifestyle Instagram photo, natural soft lighting, clean minimal background, K-aesthetic, Seoul cafe or studio setting, high resolution DSLR. No text, no letters, no words anywhere in the image.`;
+          ? `${prompt}, photorealistic Korean woman, Seoul street or cafe, natural sunlight, DSLR 85mm portrait, shallow depth of field, ultra sharp, high resolution, K-fashion editorial, no text, no letters, no watermark`
+          : `${prompt}, photorealistic Korean lifestyle scene, natural soft lighting, Seoul modern interior or outdoor, DSLR photo, ultra realistic, high detail, no text, no letters, no watermark`;
 
         // 1순위: Imagen 3 (Google의 전용 이미지 생성 모델)
         try {
@@ -3463,17 +3463,23 @@ ${platformList}
       }
 
       if (!dataUrl) {
-        // 폴백: Pollinations.ai 2회 시도
-        const shortPrompt = `${prompt}, Korean aesthetic, soft natural lighting, clean minimal, no text, no watermark`;
+        // 폴백: Pollinations.ai — flux-realism(실사) → flux → turbo 순으로 3회 시도
+        const realismPrompt = isCover
+          ? `${prompt}, photorealistic Korean woman, Seoul street fashion, natural sunlight, DSLR photo, 85mm lens, bokeh background, ultra realistic, no text`
+          : `${prompt}, photorealistic Korean lifestyle photo, natural lighting, Seoul cafe or outdoor, DSLR 85mm, shallow depth of field, ultra realistic, no text`;
         const seed = Math.floor(Math.random() * 1000000);
-        for (let attempt = 0; attempt < 2; attempt++) {
-          if (attempt > 0) await new Promise(r => setTimeout(r, 10000));
+        const models = ["flux-realism", "flux", "turbo"];
+        for (let attempt = 0; attempt < models.length; attempt++) {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 5000));
           try {
-            const model = attempt === 0 ? "turbo" : "flux";
-            const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(shortPrompt)}?width=1024&height=1024&model=${model}&nologo=true&private=true&seed=${seed + attempt}`;
-            const pollResp = await fetchWithTimeout(url, {}, 55000);
-            if (pollResp.ok) { dataUrl = await toDataUrl(await pollResp.blob()); break; }
-          } catch (_) { /* 재시도 */ }
+            const model = models[attempt];
+            const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(realismPrompt)}?width=1024&height=1024&model=${model}&nologo=true&private=true&seed=${seed + attempt}&enhance=true`;
+            const pollResp = await fetchWithTimeout(url, {}, 60000);
+            if (pollResp.ok) {
+              const blob = await pollResp.blob();
+              if (blob.size > 5000) { dataUrl = await toDataUrl(blob); break; }
+            }
+          } catch (_) { /* 다음 모델로 */ }
         }
       }
 
