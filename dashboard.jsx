@@ -3412,8 +3412,8 @@ ${platformList}
 
       if (geminiKey) {
         const imagePrompt = isCover
-          ? `Korean Instagram magazine cover photo about: ${prompt}. Korean aesthetic style, K-beauty, clean minimal composition, soft pastel tones, Seoul urban lifestyle, Korean young woman or product styling, high-end fashion magazine quality, cinematic lighting. No text, no letters, no words anywhere in the image.`
-          : `Korean lifestyle photo about: ${prompt}. Korean aesthetic, K-style interior or street, Seoul city or cafe background, natural soft lighting, Korean model or product, Instagram-worthy composition, clean and minimal. No text, no letters, no words anywhere in the image.`;
+          ? `${prompt}, Korean Instagram magazine cover photo, K-beauty editorial style, soft pastel tones, clean minimal composition, high-end fashion magazine quality, cinematic lighting, Seoul lifestyle. No text, no letters, no words anywhere in the image.`
+          : `${prompt}, Korean lifestyle Instagram photo, natural soft lighting, clean minimal background, K-aesthetic, Seoul cafe or studio setting, high resolution DSLR. No text, no letters, no words anywhere in the image.`;
 
         // 1순위: Imagen 3 (Google의 전용 이미지 생성 모델)
         try {
@@ -3460,7 +3460,7 @@ ${platformList}
 
       if (!dataUrl) {
         // 폴백: Pollinations.ai 2회 시도
-        const shortPrompt = [prompt, "Korean aesthetic style", "K-beauty", "Seoul lifestyle", "clean minimal", "soft lighting", "Instagram photo", "no text", "no watermark"].join(", ");
+        const shortPrompt = `${prompt}, Korean aesthetic, soft natural lighting, clean minimal, no text, no watermark`;
         const seed = Math.floor(Math.random() * 1000000);
         for (let attempt = 0; attempt < 2; attempt++) {
           if (attempt > 0) await new Promise(r => setTimeout(r, 10000));
@@ -3624,7 +3624,7 @@ ${platformList}
         const [igRaw, blogRaw] = await Promise.all([
           cfCallOpenAI(
             `당신은 인스타그램 콘텐츠 전문가입니다. 키워드 기반으로 캐러셀 슬라이드를 생성하세요.
-반드시 JSON만 응답: {"cover":{"title":"커버 제목(강렬한 훅)","subtitle":"부제목"},"slides":[{"no":1,"title":"슬라이드 제목","body":"본문(2~3줄)","imageDesc":"AI 이미지 묘사(영문)"},{"no":2,"title":"","body":"","imageDesc":""},{"no":3,"title":"","body":"","imageDesc":""},{"no":4,"title":"","body":"","imageDesc":""},{"no":5,"title":"","body":"","imageDesc":""}],"caption":"인스타그램 캡션(이모지 포함, 200자 이내)","hashtags":["해시태그1","해시태그2","해시태그3","해시태그4","해시태그5","해시태그6","해시태그7","해시태그8","해시태그9","해시태그10"]}`,
+반드시 JSON만 응답: {"cover":{"title":"커버 제목(강렬한 훅)","subtitle":"부제목"},"slides":[{"no":1,"title":"슬라이드 제목","body":"본문(2~3줄)","imageDesc":"이 슬라이드 내용을 시각적으로 표현하는 구체적인 사진 장면(영문). 피사체·배경·행동을 명확히 묘사. 예: Korean woman in her 20s applying skincare serum in bright minimal white bathroom, close-up shot"},{"no":2,"title":"","body":"","imageDesc":""},{"no":3,"title":"","body":"","imageDesc":""},{"no":4,"title":"","body":"","imageDesc":""},{"no":5,"title":"","body":"","imageDesc":""}],"caption":"인스타그램 캡션(이모지 포함, 200자 이내)","hashtags":["해시태그1","해시태그2","해시태그3","해시태그4","해시태그5","해시태그6","해시태그7","해시태그8","해시태그9","해시태그10"]}`,
             `키워드: ${cfCarouselKeyword}`
           ),
           cfCallOpenAI(
@@ -3640,7 +3640,7 @@ ${platformList}
       } else if (cfCarouselPlatform === "instagram") {
         const raw = await cfCallOpenAI(
           `당신은 인스타그램 콘텐츠 전문가입니다. 키워드 기반으로 캐러셀 슬라이드를 생성하세요.
-반드시 JSON만 응답: {"cover":{"title":"커버 제목(강렬한 훅)","subtitle":"부제목"},"slides":[{"no":1,"title":"슬라이드 제목","body":"본문(2~3줄)","imageDesc":"AI 이미지 묘사(영문)"},{"no":2,"title":"","body":"","imageDesc":""},{"no":3,"title":"","body":"","imageDesc":""},{"no":4,"title":"","body":"","imageDesc":""},{"no":5,"title":"","body":"","imageDesc":""}],"caption":"인스타그램 캡션(이모지 포함, 200자 이내)","hashtags":["해시태그1","해시태그2","해시태그3","해시태그4","해시태그5","해시태그6","해시태그7","해시태그8","해시태그9","해시태그10"]}`,
+반드시 JSON만 응답: {"cover":{"title":"커버 제목(강렬한 훅)","subtitle":"부제목"},"slides":[{"no":1,"title":"슬라이드 제목","body":"본문(2~3줄)","imageDesc":"이 슬라이드 내용을 시각적으로 표현하는 구체적인 사진 장면(영문). 피사체·배경·행동을 명확히 묘사. 예: Korean woman in her 20s applying skincare serum in bright minimal white bathroom, close-up shot"},{"no":2,"title":"","body":"","imageDesc":""},{"no":3,"title":"","body":"","imageDesc":""},{"no":4,"title":"","body":"","imageDesc":""},{"no":5,"title":"","body":"","imageDesc":""}],"caption":"인스타그램 캡션(이모지 포함, 200자 이내)","hashtags":["해시태그1","해시태그2","해시태그3","해시태그4","해시태그5","해시태그6","해시태그7","해시태그8","해시태그9","해시태그10"]}`,
           `키워드: ${cfCarouselKeyword}`
         );
         const result = { type: "instagram", data: parseJ(raw) };
@@ -4306,14 +4306,14 @@ ${platformList}
                     lnk.href = dataUrl; lnk.click();
                   };
 
-                  const KR_STYLE = 'Korean aesthetic, K-beauty style, Seoul lifestyle, soft natural lighting, clean minimal composition, Instagram-worthy';
                   const allSlides = [
                     { isCover: true, data: igData?.cover, gi: 0, label: 'COVER', slideKey: 'cover',
-                      prompt: [cfCarouselKeyword, igData?.cover?.title || '', 'Korean magazine cover style', 'K-fashion editorial', KR_STYLE, 'cinematic'].filter(Boolean).join(', ') },
+                      prompt: `${cfCarouselKeyword} ${igData?.cover?.title || ''}, Korean magazine cover editorial photo, K-fashion, cinematic` },
                     ...(igData?.slides || []).map((s, i) => ({ isCover: false, data: s, gi: i + 1, label: `0${s.no}`, slideKey: `slide_${s.no}`,
+                      // imageDesc(슬라이드 내용 기반 장면)를 최우선으로, 없으면 제목+본문으로 구성
                       prompt: s.imageDesc
-                        ? `${s.imageDesc}, ${cfCarouselKeyword}, ${KR_STYLE}`
-                        : [cfCarouselKeyword, s.title, s.body?.slice(0, 40) || '', KR_STYLE].filter(Boolean).join(', ')
+                        ? s.imageDesc  // OpenAI가 생성한 구체적 장면 묘사를 그대로 사용
+                        : `${s.title || cfCarouselKeyword}: ${s.body?.slice(0, 60) || ''}`
                     }))
                   ];
 
