@@ -284,20 +284,6 @@ export default function SNSDashboard() {
     if (DEMO_MODE) saveLocalContents(contentsList);
   }, [contentsList]);
 
-  // 전체 이미지 생성 큐 처리 — 한 장씩 순차 생성
-  useEffect(() => {
-    if (cfGenQueueIdx < 0 || cfGenQueueIdx >= cfGenQueue.length) return;
-    const slide = cfGenQueue[cfGenQueueIdx];
-    cfGenerateImage(slide.slideKey, slide.prompt, slide.isCover).then(() => {
-      const next = cfGenQueueIdx + 1;
-      if (next < cfGenQueue.length) {
-        setTimeout(() => setCfGenQueueIdx(next), 1500);
-      } else {
-        setCfGenQueue([]);
-        setCfGenQueueIdx(-1);
-      }
-    });
-  }, [cfGenQueueIdx]); // eslint-disable-line
 
   // AI 도구 관리 (Supabase settings 영속)
   const AI_TOOLS_DEFAULT = [
@@ -467,8 +453,9 @@ export default function SNSDashboard() {
   const sentimentLabels = { positive: "긍정", negative: "부정", neutral: "중립" };
 
   const [isGenerating, setIsGenerating] = useState(false);
-  const [cfGenQueue, setCfGenQueue] = useState([]); // 전체 이미지 생성 큐
-  const [cfGenQueueIdx, setCfGenQueueIdx] = useState(-1); // 현재 처리 중 인덱스
+  const [cfImgGenRunning, setCfImgGenRunning] = useState(false); // 전체 이미지 생성 중 여부
+  const [cfImgGenProgress, setCfImgGenProgress] = useState({ cur: 0, total: 0 }); // 진행 상황
+  const cfGenerateImageRef = useRef(null); // cfGenerateImage 최신 참조 보관
 
   // 연동 관리 탭 상태
   const [integrationTab, setIntegrationTab] = useState("sns");
@@ -3515,6 +3502,7 @@ ${platformList}
       setCfCarouselImgLoading(prev => ({ ...prev, [slideKey]: false }));
     }
   };
+  cfGenerateImageRef.current = cfGenerateImage;
 
   const handleCfGenerate = async () => {
     if (!cfKeyword.trim()) { alert("키워드 또는 주제를 입력해주세요."); return; }
@@ -4364,16 +4352,23 @@ ${platformList}
                       </div>
                       <div style={{ display: "flex", gap: 8 }}>
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             const pending = allSlides.filter(s => !cfCarouselImages[s.slideKey]);
-                            if (!pending.length) return;
-                            setCfGenQueue(pending);
-                            setCfGenQueueIdx(0);
+                            if (!pending.length || cfImgGenRunning) return;
+                            setCfImgGenRunning(true);
+                            setCfImgGenProgress({ cur: 0, total: pending.length });
+                            for (let i = 0; i < pending.length; i++) {
+                              setCfImgGenProgress({ cur: i + 1, total: pending.length });
+                              await cfGenerateImageRef.current(pending[i].slideKey, pending[i].prompt, pending[i].isCover);
+                              if (i < pending.length - 1) await new Promise(r => setTimeout(r, 1500));
+                            }
+                            setCfImgGenRunning(false);
+                            setCfImgGenProgress({ cur: 0, total: 0 });
                           }}
-                          disabled={cfGenQueueIdx >= 0 || Object.values(cfCarouselImgLoading).some(Boolean)}
+                          disabled={cfImgGenRunning || Object.values(cfCarouselImgLoading).some(Boolean)}
                           style={{ padding: "8px 14px", borderRadius: 8, border: "1.5px solid #6366f1", background: "#fff", color: "#6366f1", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                          {cfGenQueueIdx >= 0
-                            ? `🎨 생성 중 (${cfGenQueueIdx + 1}/${cfGenQueue.length})...`
+                          {cfImgGenRunning
+                            ? `🎨 생성 중 (${cfImgGenProgress.cur}/${cfImgGenProgress.total})...`
                             : "🎨 전체 이미지 생성"}
                         </button>
                         <button onClick={downloadAllAsZip}
