@@ -2641,11 +2641,16 @@ ${platformList}
 
       if (isSchedule) {
         // 예약 등록 — 로컬 상태 먼저, Supabase는 가능한 경우만
-        setContentsList(prev => prev.map(c => c.id === selectedContent.id ? { ...c, status: "scheduled", scheduledAt: pubSchedule } : c));
+        const schedMsg = `⏰ 예약: ${pubSchedule}`;
+        const newResults = { ...(selectedContent.publishResults || {}), [platformKey]: { msg: schedMsg, at: new Date().toISOString().slice(0,16) } };
+        setContentsList(prev => prev.map(c => c.id === selectedContent.id
+          ? { ...c, status: "scheduled", scheduledAt: pubSchedule, publishResults: newResults }
+          : c
+        ));
         if (!DEMO_MODE) {
-          await supabase.from("contents").update({ status: "scheduled", scheduled_at: pubSchedule }).eq("id", selectedContent.id);
+          await supabase.from("contents").update({ status: "scheduled", scheduled_at: pubSchedule, publish_results: newResults }).eq("id", selectedContent.id);
         }
-        setPubResult(prev => ({ ...prev, [platformKey]: `⏰ 예약 완료: ${pubSchedule}` }));
+        setPubResult(prev => ({ ...prev, [platformKey]: schedMsg }));
         return;
       }
 
@@ -2671,11 +2676,15 @@ ${platformList}
           const postId = await publishYouTubePost(selectedContent.platformDrafts?.youtube || selectedContent.masterText);
           msg = `✅ YouTube 커뮤니티 발행완료 ID:${postId}`;
         }
-        // 로컬 상태 업데이트
-        setContentsList(prev => prev.map(c => c.id === selectedContent.id ? { ...c, status: "published", firstPublishedAt: c.firstPublishedAt || now } : c));
+        // 로컬 상태 업데이트 (publishResults에 영속 저장)
+        const newResults = { ...(selectedContent.publishResults || {}), [platformKey]: { msg, at: now } };
+        setContentsList(prev => prev.map(c => c.id === selectedContent.id
+          ? { ...c, status: "published", firstPublishedAt: c.firstPublishedAt || now, publishResults: newResults }
+          : c
+        ));
         // Supabase 업데이트 (가능한 경우만)
         if (!DEMO_MODE) {
-          const upd = { status: "published" };
+          const upd = { status: "published", publish_results: newResults };
           if (!selectedContent.firstPublishedAt) upd.first_published_at = now;
           else upd.updated_at = now;
           await supabase.from("contents").update(upd).eq("id", selectedContent.id);
@@ -2829,13 +2838,15 @@ ${platformList}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     {PUBLISH_PLATFORM_LIST.filter(pp => selectedContent.platforms?.includes(pp.key)).map(pp => {
                       const res = pubResult[pp.key];
+                      const history = selectedContent.publishResults?.[pp.key]; // 저장된 발행 내역
                       const loading = pubLoading[pp.key];
                       const draft = selectedContent.platformDrafts?.[pp.key] || selectedContent.masterText || "";
+                      const isSuccess = (txt) => txt?.startsWith("✅") || txt?.startsWith("⏰");
                       return (
                         <div key={pp.key} style={{ padding: 16, borderRadius: 10, border: `1.5px solid ${pp.connected ? "#c7d2fe" : "#e2e8f0"}`, background: pp.connected ? "#f5f7ff" : "#fafafa" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                             <span style={{ fontSize: 22 }}>{pp.icon}</span>
-                            <div>
+                            <div style={{ flex: 1 }}>
                               <div style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>{pp.label}</div>
                               <div style={{ fontSize: 10, color: pp.connected ? "#10b981" : "#ef4444" }}>
                                 {pp.connected ? "● 연동됨" : "● 미연동 — 연동 관리에서 설정 필요"}
@@ -2843,12 +2854,21 @@ ${platformList}
                             </div>
                           </div>
                           {draft && (
-                            <div style={{ fontSize: 11, color: "#64748b", background: "#f8fafc", borderRadius: 6, padding: "6px 8px", marginBottom: 10, maxHeight: 80, overflowY: "auto", lineHeight: 1.5 }}>
-                              {draft.slice(0, 120)}{draft.length > 120 ? "..." : ""}
+                            <div style={{ fontSize: 11, color: "#64748b", background: "#f8fafc", borderRadius: 6, padding: "6px 8px", marginBottom: 8, maxHeight: 60, overflowY: "auto", lineHeight: 1.5 }}>
+                              {draft.replace(/<[^>]+>/g, "").slice(0, 100)}{draft.length > 100 ? "..." : ""}
                             </div>
                           )}
+                          {/* 발행 내역 (저장된 이력) */}
+                          {history && !res && (
+                            <div style={{ fontSize: 11, marginBottom: 8, padding: "5px 8px", borderRadius: 6, background: isSuccess(history.msg) ? "#d1fae5" : "#fee2e2", color: isSuccess(history.msg) ? "#065f46" : "#991b1b", lineHeight: 1.4 }}>
+                              <div style={{ fontWeight: 600, marginBottom: 2 }}>📋 발행 내역</div>
+                              <div style={{ wordBreak: "break-all" }}>{history.msg}</div>
+                              {history.at && <div style={{ fontSize: 10, opacity: 0.7, marginTop: 2 }}>{history.at}</div>}
+                            </div>
+                          )}
+                          {/* 현재 세션 결과 */}
                           {res && (
-                            <div style={{ fontSize: 11, marginBottom: 8, padding: "5px 8px", borderRadius: 6, background: res.startsWith("✅") || res.startsWith("⏰") ? "#d1fae5" : "#fee2e2", color: res.startsWith("✅") || res.startsWith("⏰") ? "#065f46" : "#991b1b", wordBreak: "break-all", lineHeight: 1.4 }}>
+                            <div style={{ fontSize: 11, marginBottom: 8, padding: "5px 8px", borderRadius: 6, background: isSuccess(res) ? "#d1fae5" : "#fee2e2", color: isSuccess(res) ? "#065f46" : "#991b1b", wordBreak: "break-all", lineHeight: 1.4 }}>
                               {res}
                             </div>
                           )}
