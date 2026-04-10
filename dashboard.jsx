@@ -3464,16 +3464,15 @@ ${platformList}
 
       if (!dataUrl) {
         // 폴백: Pollinations.ai — flux-realism(실사) → flux → turbo 순으로 3회 시도
-        const realismPrompt = isCover
-          ? `${prompt}, photorealistic Korean woman, Seoul street fashion, natural sunlight, DSLR photo, 85mm lens, bokeh background, ultra realistic, no text`
-          : `${prompt}, photorealistic Korean lifestyle photo, natural lighting, Seoul cafe or outdoor, DSLR 85mm, shallow depth of field, ultra realistic, no text`;
+        // prompt = imageDesc(슬라이드 컨셉 영문 묘사) 그대로 사용 + 실사 키워드 추가
+        const realismPrompt = `${prompt}, photorealistic, high resolution DSLR photo, natural lighting, ultra detailed, ultra realistic, 85mm lens, no text, no watermark, no logo`;
         const seed = Math.floor(Math.random() * 1000000);
         const models = ["flux-realism", "flux", "turbo"];
         for (let attempt = 0; attempt < models.length; attempt++) {
           if (attempt > 0) await new Promise(r => setTimeout(r, 5000));
           try {
             const model = models[attempt];
-            const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(realismPrompt)}?width=1024&height=1024&model=${model}&nologo=true&private=true&seed=${seed + attempt}&enhance=true`;
+            const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(realismPrompt)}?width=1024&height=1024&model=${model}&nologo=true&private=true&seed=${seed + attempt}`;
             const pollResp = await fetchWithTimeout(url, {}, 60000);
             if (pollResp.ok) {
               const blob = await pollResp.blob();
