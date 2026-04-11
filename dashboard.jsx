@@ -3334,20 +3334,23 @@ ${platformList}
           const token = params.get("access_token");
           if (!token) { setIgOAuthLoading(false); return; }
           try {
-            // 페이지 목록 조회
+            // 페이지 목록 조회 (페이지 액세스 토큰 포함)
             const pagesResp = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${token}`);
             const pagesData = await pagesResp.json();
-            const pageId = pagesData.data?.[0]?.id;
-            if (!pageId) throw new Error("연결된 Facebook 페이지가 없습니다.");
+            const page = pagesData.data?.[0];
+            if (!page) throw new Error("연결된 Facebook 페이지가 없습니다.");
+            const pageId = page.id;
+            // 페이지 액세스 토큰 사용 (Instagram 게시에 필요한 토큰)
+            const pageToken = page.access_token || token;
             // Instagram User ID 조회
-            const igResp = await fetch(`https://graph.facebook.com/v19.0/${pageId}?fields=instagram_business_account&access_token=${token}`);
+            const igResp = await fetch(`https://graph.facebook.com/v19.0/${pageId}?fields=instagram_business_account&access_token=${pageToken}`);
             const igData = await igResp.json();
             const userId = igData.instagram_business_account?.id;
             if (!userId) throw new Error("Instagram 비즈니스 계정을 찾을 수 없습니다.\n인스타그램이 Facebook 페이지와 연결되어 있는지 확인해주세요.");
-            // 저장
-            setSnsCredentials(prev => ({ ...prev, instagram: { ...prev.instagram, accessToken: token, userId } }));
+            // 페이지 액세스 토큰으로 저장 (Instagram 게시용)
+            setSnsCredentials(prev => ({ ...prev, instagram: { ...prev.instagram, accessToken: pageToken, userId } }));
             const saved = JSON.parse(localStorage.getItem("sns_credentials") || "{}");
-            saved.instagram = { ...saved.instagram, accessToken: token, userId };
+            saved.instagram = { ...saved.instagram, accessToken: pageToken, userId };
             localStorage.setItem("sns_credentials", JSON.stringify(saved));
             alert(`✅ Instagram 연동 완료!\nUser ID: ${userId}`);
           } catch (e) { alert(`연동 실패: ${e.message}`); }
