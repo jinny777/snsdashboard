@@ -592,11 +592,11 @@ export default function SNSDashboard() {
       if (!due.length) return;
       for (const post of due) {
         const results = { ...post.publishResults };
-        // Instagram
+        // Instagram — 클립보드 복사 방식
         if (post.platforms?.includes("instagram") && post.platformDrafts?.instagram?.trim()) {
           try {
-            const url = await publishInstagramPost(post.platformDrafts.instagram, generateTextCard(post.platformDrafts.instagram, post.title));
-            results.instagram = `예약발행완료 ${new Date().toLocaleDateString("ko-KR")} | ${url}`;
+            await navigator.clipboard.writeText(post.platformDrafts.instagram).catch(() => {});
+            results.instagram = `📋 캡션 복사완료 ${new Date().toLocaleDateString("ko-KR")} — Instagram에서 붙여넣기하세요`;
           } catch (e) { results.instagram = `오류: ${e.message}`; }
         }
         // Naver Blog
@@ -1553,10 +1553,10 @@ ${platformList}
           if (toSave.platforms?.includes("instagram") && toSave.platformDrafts?.instagram?.trim()) {
             try {
               const caption = toSave.platformDrafts.instagram;
-              const cardImg = generateTextCard(caption, toSave.title);
-              const url = await publishInstagramPost(caption, cardImg);
-              results.instagram = `발행완료 ${new Date().toLocaleDateString("ko-KR")} | ${url}`;
-              alert(`✅ Instagram 발행 완료!\n${url}`);
+              await navigator.clipboard.writeText(caption).catch(() => {});
+              window.open("https://www.instagram.com/", "_blank");
+              results.instagram = `📋 캡션 복사완료 ${new Date().toLocaleDateString("ko-KR")} — Instagram에서 붙여넣기하세요`;
+              alert(`📋 Instagram 캡션이 클립보드에 복사되었습니다!\nInstagram에서 새 게시물 만들고 붙여넣기(Ctrl+V)하세요.`);
             } catch (e) {
               results.instagram = `오류: ${e.message}`;
               alert(`❌ Instagram 발행 실패: ${e.message}`);
@@ -2799,9 +2799,10 @@ ${platformList}
           msg = `✅ 발행완료 ${data.url || ""}`;
         } else if (platformKey === "instagram") {
           const caption = selectedContent.platformDrafts?.instagram || selectedContent.masterText;
-          const cardImg = generateTextCard(caption, selectedContent.title);
-          const url = await publishInstagramPost(caption, cardImg);
-          msg = `✅ 발행완료 ${url}`;
+          // Instagram Graph API는 Meta 앱 검수 필요 → 클립보드 복사 + Instagram 열기로 대체
+          await navigator.clipboard.writeText(caption).catch(() => {});
+          window.open("https://www.instagram.com/", "_blank");
+          msg = `📋 캡션이 클립보드에 복사되었습니다. Instagram에서 새 게시물을 만들고 붙여넣기(Ctrl+V)하세요.`;
         } else if (platformKey === "naver") {
           await publishNaverBlog(selectedContent.title, selectedContent.platformDrafts?.naver || selectedContent.masterText);
           msg = "✅ Naver 비공개 저장 완료 (Naver에서 공개 설정하세요)";
