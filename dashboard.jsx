@@ -599,11 +599,13 @@ export default function SNSDashboard() {
             results.instagram = `📋 캡션 복사완료 ${new Date().toLocaleDateString("ko-KR")} — Instagram에서 붙여넣기하세요`;
           } catch (e) { results.instagram = `오류: ${e.message}`; }
         }
-        // Naver Blog
+        // Naver Blog — 클립보드 복사 방식
         if (post.platforms?.includes("naver") && post.platformDrafts?.naver?.trim()) {
           try {
-            await publishNaverBlog(post.title, post.platformDrafts.naver);
-            results.naver = `예약발행완료 ${new Date().toLocaleDateString("ko-KR")}`;
+            const copyText = `[제목] ${post.title}\n\n${post.platformDrafts.naver}`;
+            await navigator.clipboard.writeText(copyText).catch(() => {});
+            window.open("https://blog.naver.com/PostWriteForm.naver", "_blank");
+            results.naver = `📋 내용 복사완료 ${new Date().toLocaleDateString("ko-KR")} — 네이버 블로그에서 붙여넣기하세요`;
           } catch (e) { results.naver = `오류: ${e.message}`; }
         }
         // YouTube
@@ -1563,15 +1565,16 @@ ${platformList}
             }
           }
 
-          // Naver Blog 발행
+          // Naver Blog — 클립보드 복사 방식
           if (toSave.platforms?.includes("naver") && toSave.platformDrafts?.naver?.trim()) {
             try {
-              await publishNaverBlog(toSave.title, toSave.platformDrafts.naver);
-              results.naver = `발행완료 ${new Date().toLocaleDateString("ko-KR")}`;
-              alert("✅ Naver Blog 게시 완료! (비공개 저장 → Naver에서 공개 설정)");
+              const copyText = `[제목] ${toSave.title}\n\n${toSave.platformDrafts.naver}`;
+              await navigator.clipboard.writeText(copyText).catch(() => {});
+              window.open("https://blog.naver.com/PostWriteForm.naver", "_blank");
+              results.naver = `📋 내용 복사완료 ${new Date().toLocaleDateString("ko-KR")} — 네이버 블로그에서 붙여넣기하세요`;
+              alert("📋 블로그 내용이 클립보드에 복사되었습니다!\n네이버 블로그 글쓰기에서 Ctrl+V로 붙여넣기하세요.");
             } catch (e) {
               results.naver = `오류: ${e.message}`;
-              alert(`❌ Naver Blog 발행 실패: ${e.message}`);
             }
           }
 
@@ -2830,8 +2833,11 @@ ${platformList}
           window.open("https://www.instagram.com/", "_blank");
           msg = `📋 캡션 복사 + 이미지 ${Object.keys(imgs||{}).length}장 다운로드 완료 — Instagram에서 업로드하세요`;
         } else if (platformKey === "naver") {
-          await publishNaverBlog(selectedContent.title, selectedContent.platformDrafts?.naver || selectedContent.masterText);
-          msg = "✅ Naver 비공개 저장 완료 (Naver에서 공개 설정하세요)";
+          const naverContent = selectedContent.platformDrafts?.naver || selectedContent.masterText || "";
+          const copyText = `[제목] ${selectedContent.title}\n\n${naverContent}`;
+          await navigator.clipboard.writeText(copyText).catch(() => {});
+          window.open("https://blog.naver.com/PostWriteForm.naver", "_blank");
+          msg = `📋 블로그 내용이 클립보드에 복사되었습니다. 네이버 블로그에서 붙여넣기(Ctrl+V)하세요.`;
         } else if (platformKey === "youtube") {
           const postId = await publishYouTubePost(selectedContent.platformDrafts?.youtube || selectedContent.masterText);
           msg = `✅ YouTube 커뮤니티 발행완료 ID:${postId}`;
