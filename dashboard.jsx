@@ -3782,17 +3782,35 @@ ${platformList}
     return cvs.toDataURL("image/png");
   };
 
-  // Base64 dataUrl → imgbb 업로드 → 공개 URL 반환
+  // Base64 dataUrl → 공개 URL 반환 (imgbb → Imgur 익명 순으로 자동 시도)
   const uploadToImgbb = async (dataUrl) => {
-    const key = serviceCredentials.imgbb?.apiKey?.trim();
-    if (!key) throw new Error("imgbb API 키가 필요합니다. (설정 > imgbb)");
     const base64 = dataUrl.split(",")[1];
-    const form = new FormData();
-    form.append("image", base64);
-    const resp = await fetch(`https://api.imgbb.com/1/upload?key=${key}`, { method: "POST", body: form });
-    const data = await resp.json();
-    if (!data.success) throw new Error(`imgbb 업로드 실패: ${data.error?.message || "알 수 없는 오류"}`);
-    return data.data.url;
+
+    // 1순위: imgbb (키 설정 시)
+    const imgbbKey = serviceCredentials.imgbb?.apiKey?.trim();
+    if (imgbbKey) {
+      const form = new FormData();
+      form.append("image", base64);
+      const resp = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, { method: "POST", body: form });
+      const data = await resp.json();
+      if (data.success) return data.data.url;
+    }
+
+    // 2순위: Imgur 익명 업로드 (키 불필요 — app Client-ID 사용)
+    try {
+      const form = new FormData();
+      form.append("image", base64);
+      form.append("type", "base64");
+      const resp = await fetch("https://api.imgur.com/3/image", {
+        method: "POST",
+        headers: { Authorization: "Client-ID 546c25a59c58ad7" },
+        body: form,
+      });
+      const data = await resp.json();
+      if (data?.success && data.data?.link) return data.data.link;
+    } catch (_) {}
+
+    throw new Error("이미지 업로드 실패. imgbb API 키를 설정하거나 잠시 후 다시 시도해주세요. (설정 > imgbb)");
   };
 
   // Instagram 텍스트+이미지 발행 (Graph API)
