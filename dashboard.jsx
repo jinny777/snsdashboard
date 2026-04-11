@@ -2773,13 +2773,25 @@ ${platformList}
       const now = new Date().toISOString().replace("T", " ").slice(0, 16);
 
       if (isSchedule) {
-        // 예약 등록 — 로컬 상태 먼저, Supabase는 가능한 경우만
+        // 예약 등록 — 로컬 상태 업데이트
         const schedMsg = `⏰ 예약: ${pubSchedule}`;
         const newResults = { ...(selectedContent.publishResults || {}), [platformKey]: { msg: schedMsg, at: new Date().toISOString().slice(0,16) } };
-        setContentsList(prev => prev.map(c => c.id === selectedContent.id
-          ? { ...c, status: "scheduled", scheduledAt: pubSchedule, publishResults: newResults }
-          : c
-        ));
+        const updatedContent = { ...selectedContent, status: "scheduled", scheduledAt: pubSchedule, publishResults: newResults };
+        setContentsList(prev => prev.map(c => c.id === selectedContent.id ? updatedContent : c));
+
+        // Vercel KV에 예약 저장 (서버 사이드 실행용)
+        try {
+          const naverToken = snsCredentials.naver?.accessToken?.trim();
+          await fetch("/api/schedule", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...updatedContent,
+              naverAccessToken: naverToken || "",
+            }),
+          });
+        } catch (_) { /* KV 저장 실패해도 로컬은 유지 */ }
+
         if (!DEMO_MODE) {
           await supabase.from("contents").update({ status: "scheduled", scheduled_at: pubSchedule, publish_results: newResults }).eq("id", selectedContent.id);
         }
