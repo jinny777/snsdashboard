@@ -33,10 +33,11 @@ const Icons = {
 // --- Platform colors & data ---
 const PLATFORMS = {
   instagram: { name: "Instagram", color: "#E1306C", bg: "#E1306C15", icon: "📸" },
-  facebook: { name: "Facebook", color: "#1877F2", bg: "#1877F215", icon: "👤" },
-  twitter: { name: "X (Twitter)", color: "#14171A", bg: "#14171A12", icon: "𝕏" },
-  threads: { name: "Threads", color: "#6B7280", bg: "#6B728015", icon: "🔗" },
-  youtube: { name: "YouTube", color: "#FF0000", bg: "#FF000012", icon: "▶️" },
+  facebook:  { name: "Facebook",  color: "#1877F2", bg: "#1877F215", icon: "👤" },
+  twitter:   { name: "X (Twitter)", color: "#14171A", bg: "#14171A12", icon: "𝕏" },
+  threads:   { name: "Threads",   color: "#6B7280", bg: "#6B728015", icon: "🔗" },
+  youtube:   { name: "YouTube",   color: "#FF0000", bg: "#FF000012", icon: "▶️" },
+  naver:     { name: "Naver Blog", color: "#03C75A", bg: "#03C75A15", icon: "📝" },
 };
 
 // --- Simulated Data ---
@@ -969,7 +970,7 @@ ${platformList}
     const metricsTdNo = { ...metricsTd, textAlign: "center", color: "#94a3b8", fontWeight: 500 };
 
     // 채널별 차트 데이터
-    const channelChartLabels = channelRows.map(([key]) => PLATFORMS[key].name);
+    const channelChartLabels = channelRows.map(([key]) => PLATFORMS[key]?.name || key);
     const channelChartSeries = [
       { name: "조회",    data: channelRows.map(([,s]) => s.views) },
       { name: "좋아요",  data: channelRows.map(([,s]) => s.likes) },
