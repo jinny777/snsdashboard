@@ -3412,13 +3412,13 @@ ${platformList}
     };
     try {
       const geminiKey = serviceCredentials.gemini?.apiKey?.trim();
+      const openaiKey = serviceCredentials.openai?.apiKey?.trim();
       let dataUrl = null;
 
-      if (geminiKey) {
-        const imagePrompt = isCover
-          ? `${prompt}, photorealistic Korean woman, Seoul street or cafe, natural sunlight, DSLR 85mm portrait, shallow depth of field, ultra sharp, high resolution, K-fashion editorial, no text, no letters, no watermark`
-          : `${prompt}, photorealistic Korean lifestyle scene, natural soft lighting, Seoul modern interior or outdoor, DSLR photo, ultra realistic, high detail, no text, no letters, no watermark`;
+      // 공통 이미지 프롬프트 (실사 + 컨셉 기반)
+      const imagePrompt = `${prompt}, photorealistic, high resolution DSLR photo, natural lighting, ultra detailed, ultra realistic, 85mm lens, no text, no watermark, no logo`;
 
+      if (geminiKey) {
         // 1순위: Imagen 3 (Google의 전용 이미지 생성 모델)
         try {
           const imgResp = await fetchWithTimeout(
@@ -3431,7 +3431,7 @@ ${platformList}
                 parameters: { sampleCount: 1, aspectRatio: "1:1" },
               }),
             },
-            12000
+            15000
           );
           const imgData = await imgResp.json();
           const b64 = imgData.predictions?.[0]?.bytesBase64Encoded;
@@ -3451,7 +3451,7 @@ ${platformList}
                   generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
                 }),
               },
-              12000
+              15000
             );
             const gemData = await gemResp.json();
             const part = gemData.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
@@ -3462,17 +3462,40 @@ ${platformList}
         }
       }
 
+      // 3순위: DALL-E 3 (OpenAI 키 보유 시 — 가장 안정적인 실사 이미지)
+      if (!dataUrl && openaiKey) {
+        try {
+          const dalleResp = await fetchWithTimeout(
+            "https://api.openai.com/v1/images/generations",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+              body: JSON.stringify({
+                model: "dall-e-3",
+                prompt: imagePrompt,
+                n: 1,
+                size: "1024x1024",
+                quality: "standard",
+                response_format: "b64_json",
+              }),
+            },
+            45000
+          );
+          const dalleData = await dalleResp.json();
+          const b64 = dalleData.data?.[0]?.b64_json;
+          if (b64) dataUrl = `data:image/png;base64,${b64}`;
+        } catch (_) { /* 폴백으로 진행 */ }
+      }
+
       if (!dataUrl) {
-        // 폴백: Pollinations.ai — flux-realism(실사) → flux → turbo 순으로 3회 시도
-        // prompt = imageDesc(슬라이드 컨셉 영문 묘사) 그대로 사용 + 실사 키워드 추가
-        const realismPrompt = `${prompt}, photorealistic, high resolution DSLR photo, natural lighting, ultra detailed, ultra realistic, 85mm lens, no text, no watermark, no logo`;
+        // 최종 폴백: Pollinations.ai — flux-realism(실사) → flux → turbo 순으로 3회 시도
         const seed = Math.floor(Math.random() * 1000000);
         const models = ["flux-realism", "flux", "turbo"];
         for (let attempt = 0; attempt < models.length; attempt++) {
           if (attempt > 0) await new Promise(r => setTimeout(r, 5000));
           try {
             const model = models[attempt];
-            const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(realismPrompt)}?width=1024&height=1024&model=${model}&nologo=true&private=true&seed=${seed + attempt}`;
+            const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=1024&height=1024&model=${model}&nologo=true&private=true&seed=${seed + attempt}`;
             const pollResp = await fetchWithTimeout(url, {}, 60000);
             if (pollResp.ok) {
               const blob = await pollResp.blob();
