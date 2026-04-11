@@ -2799,10 +2799,24 @@ ${platformList}
           msg = `✅ 발행완료 ${data.url || ""}`;
         } else if (platformKey === "instagram") {
           const caption = selectedContent.platformDrafts?.instagram || selectedContent.masterText;
-          // Instagram Graph API는 Meta 앱 검수 필요 → 클립보드 복사 + Instagram 열기로 대체
+          // 캡션 클립보드 복사
           await navigator.clipboard.writeText(caption).catch(() => {});
+          // 카드뉴스 이미지 자동 다운로드
+          const imgs = selectedContent.carouselImages || cfCarouselImages;
+          const imgKeys = Object.keys(imgs || {});
+          if (imgKeys.length > 0) {
+            // 순서: cover → slide_1 ~ slide_5
+            const ordered = ["cover", "slide_1", "slide_2", "slide_3", "slide_4", "slide_5"].filter(k => imgs[k]);
+            for (let i = 0; i < ordered.length; i++) {
+              const a = document.createElement("a");
+              a.href = imgs[ordered[i]];
+              a.download = `instagram_${i === 0 ? "cover" : `slide_${i}`}.png`;
+              a.click();
+              await new Promise(r => setTimeout(r, 300));
+            }
+          }
           window.open("https://www.instagram.com/", "_blank");
-          msg = `📋 캡션이 클립보드에 복사되었습니다. Instagram에서 새 게시물을 만들고 붙여넣기(Ctrl+V)하세요.`;
+          msg = `📋 캡션 복사 + 이미지 ${Object.keys(imgs||{}).length}장 다운로드 완료 — Instagram에서 업로드하세요`;
         } else if (platformKey === "naver") {
           await publishNaverBlog(selectedContent.title, selectedContent.platformDrafts?.naver || selectedContent.masterText);
           msg = "✅ Naver 비공개 저장 완료 (Naver에서 공개 설정하세요)";
@@ -3599,7 +3613,7 @@ ${platformList}
   };
 
   // 콘텐츠 생성 결과를 저장 후 발행 관리 페이지로 이동
-  const handleCfSaveAndGoPublish = async (title, platforms, drafts) => {
+  const handleCfSaveAndGoPublish = async (title, platforms, drafts, extraImages) => {
     const newContent = {
       title,
       masterText: title,
@@ -3610,6 +3624,7 @@ ${platformList}
       publishResults: {},
       registrant: "",
       registeredAt: new Date().toISOString().slice(0, 10),
+      carouselImages: extraImages || null, // 카드뉴스 슬라이드 이미지 보관
     };
 
     let saved;
@@ -4432,7 +4447,8 @@ ${platformList}
                             await handleCfSaveAndGoPublish(
                               cfCarouselKeyword || "카드뉴스",
                               ["instagram"],
-                              { instagram: caption + hashtags }
+                              { instagram: caption + hashtags },
+                              Object.keys(cfCarouselImages).length ? cfCarouselImages : null
                             );
                           }}
                           style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#6366f1", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
