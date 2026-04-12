@@ -3452,8 +3452,8 @@ ${platformList}
       const openaiKey = serviceCredentials.openai?.apiKey?.trim();
       let dataUrl = null;
 
-      // 공통 이미지 프롬프트 (실사 + 컨셉 기반)
-      const imagePrompt = `${prompt}, photorealistic, high resolution DSLR photo, natural lighting, ultra detailed, ultra realistic, 85mm lens, no text, no watermark, no logo`;
+      // 공통 이미지 프롬프트 (실사 + 밝고 산뜻한 톤)
+      const imagePrompt = `${prompt}, photorealistic, bright and vibrant, vivid colors, fresh clean aesthetic, soft warm sunlight, airy bright atmosphere, high saturation, cheerful mood, high resolution DSLR photo, 85mm lens, ultra detailed, no text, no watermark, no logo`;
 
       if (geminiKey) {
         // 1순위: Imagen 3 (Google의 전용 이미지 생성 모델)
