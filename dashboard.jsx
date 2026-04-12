@@ -3452,8 +3452,8 @@ ${platformList}
       const openaiKey = serviceCredentials.openai?.apiKey?.trim();
       let dataUrl = null;
 
-      // 공통 이미지 프롬프트 (실사 + 밝고 산뜻한 톤)
-      const imagePrompt = `${prompt}, photorealistic, bright and vibrant, vivid colors, fresh clean aesthetic, soft warm sunlight, airy bright atmosphere, high saturation, cheerful mood, high resolution DSLR photo, 85mm lens, ultra detailed, no text, no watermark, no logo`;
+      // 공통 이미지 프롬프트 (실사 + 밝고 산뜻한 톤 강조)
+      const imagePrompt = `${prompt}, photorealistic, extremely bright and cheerful, high key lighting, vivid saturated colors, fresh clean white bright background, soft natural daylight, overexposed bright airy feel, pastel bright tones, Korean Instagram aesthetic, high resolution DSLR photo, 85mm lens, ultra detailed, no text, no watermark, no logo, no dark shadows, no moody lighting, no dark background`;
 
       if (geminiKey) {
         // 1순위: Imagen 3 (Google의 전용 이미지 생성 모델)
